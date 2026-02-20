@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveOrgIdFromUser } from '@/lib/auth/org-context'
 import { NextResponse } from 'next/server'
 import { extractQuestionsFromPages, type ExtractedQuestion } from '@/lib/openai/extract-questions'
+import type { User } from '@supabase/supabase-js'
 
 interface JsonPageReference {
   path?: string
@@ -16,20 +17,79 @@ interface JsonUploadPayload {
   originalPdfPath?: string | null
 }
 
+async function resolveOrgIdForUpload(
+  user: User,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  admin: ReturnType<typeof createAdminClient>
+): Promise<string | null> {
+  const fromClaims = resolveOrgIdFromUser(user)
+  if (fromClaims) return fromClaims
+
+  const { data: tutor } = await supabase
+    .from('tutors')
+    .select('org_id')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (tutor?.org_id) return tutor.org_id
+
+  const { data: org } = await admin
+    .from('organizations')
+    .select('id')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  let orgId = org?.id
+  if (!orgId) {
+    orgId = crypto.randomUUID()
+    const { error: orgCreateError } = await admin
+      .from('organizations')
+      .insert({ id: orgId, name: 'Default Organization' })
+    if (orgCreateError) {
+      throw new Error(`Failed to bootstrap organization: ${orgCreateError.message}`)
+    }
+  }
+
+  const displayName =
+    (typeof user.user_metadata?.name === 'string' && user.user_metadata.name.trim()) ||
+    (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+    user.email ||
+    'Tutor'
+  const email = user.email || `${user.id}@local.invalid`
+
+  const { error: tutorUpsertError } = await admin.from('tutors').upsert({
+    id: user.id,
+    org_id: orgId,
+    name: displayName,
+    email,
+  })
+  if (tutorUpsertError) {
+    throw new Error(`Failed to bootstrap tutor profile: ${tutorUpsertError.message}`)
+  }
+
+  return orgId
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient()
+  const admin = createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = resolveOrgIdFromUser(user)
+  let orgId: string | null = null
+  try {
+    orgId = await resolveOrgIdForUpload(user, supabase, admin)
+  } catch (err) {
+    console.error('Failed to resolve org context for upload:', err)
+    return NextResponse.json({ error: 'Failed to initialize account for uploads' }, { status: 500 })
+  }
+
   if (!orgId) {
     return NextResponse.json(
-      { error: 'Organization context missing for authenticated user' },
-      { status: 403 }
+      { error: 'Unable to resolve organization context for upload' },
+      { status: 500 }
     )
   }
 
-  const admin = createAdminClient()
   const contentType = request.headers.get('content-type') || ''
 
   if (contentType.includes('application/json')) {
@@ -69,7 +129,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid storage path' }, { status: 400 })
     }
 
-    const { data: test } = await supabase
+    const { data: test } = await admin
       .from('tests')
       .select('id')
       .eq('id', testId)
@@ -110,7 +170,7 @@ export async function POST(request: Request) {
   }
 
   // Create test record
-  const { data: test, error: testError } = await supabase
+  const { data: test, error: testError } = await admin
     .from('tests')
     .insert({
       org_id: orgId,

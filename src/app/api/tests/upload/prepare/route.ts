@@ -47,7 +47,16 @@ async function resolveOrgIdForPrepare(
     .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle()
-  if (!org?.id) return null
+  let orgId = org?.id
+  if (!orgId) {
+    orgId = crypto.randomUUID()
+    const { error: orgCreateError } = await admin
+      .from('organizations')
+      .insert({ id: orgId, name: 'Default Organization' })
+    if (orgCreateError) {
+      throw new Error(`Failed to bootstrap organization: ${orgCreateError.message}`)
+    }
+  }
 
   const displayName =
     (typeof user.user_metadata?.name === 'string' && user.user_metadata.name.trim()) ||
@@ -56,14 +65,17 @@ async function resolveOrgIdForPrepare(
     'Tutor'
   const email = user.email || `${user.id}@local.invalid`
 
-  await admin.from('tutors').upsert({
+  const { error: tutorUpsertError } = await admin.from('tutors').upsert({
     id: user.id,
-    org_id: org.id,
+    org_id: orgId,
     name: displayName,
     email,
   })
+  if (tutorUpsertError) {
+    throw new Error(`Failed to bootstrap tutor profile: ${tutorUpsertError.message}`)
+  }
 
-  return org.id
+  return orgId
 }
 
 export async function POST(request: Request) {
@@ -74,7 +86,14 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = await resolveOrgIdForPrepare(user, supabase, admin)
+  let orgId: string | null = null
+  try {
+    orgId = await resolveOrgIdForPrepare(user, supabase, admin)
+  } catch (err) {
+    console.error('Failed to resolve org context for upload prepare:', err)
+    return NextResponse.json({ error: 'Failed to initialize account for uploads' }, { status: 500 })
+  }
+
   if (!orgId) {
     return NextResponse.json(
       { error: 'Unable to resolve organization context for upload preparation' },
@@ -104,7 +123,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'All page files must be images' }, { status: 400 })
   }
 
-  const { data: test, error: testError } = await supabase
+  const { data: test, error: testError } = await admin
     .from('tests')
     .insert({
       org_id: orgId,
@@ -116,7 +135,10 @@ export async function POST(request: Request) {
     .single()
 
   if (testError || !test) {
-    return NextResponse.json({ error: 'Failed to create test' }, { status: 500 })
+    return NextResponse.json(
+      { error: `Failed to create test${testError ? `: ${testError.message}` : ''}` },
+      { status: 500 }
+    )
   }
 
   const uploads: Array<{
