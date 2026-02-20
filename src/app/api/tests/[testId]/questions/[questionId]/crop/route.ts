@@ -12,7 +12,15 @@ export async function POST(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = resolveOrgIdFromUser(user)
+  let orgId = resolveOrgIdFromUser(user)
+  if (!orgId) {
+    const { data: tutor } = await supabase
+      .from('tutors')
+      .select('org_id')
+      .eq('id', user.id)
+      .maybeSingle()
+    orgId = tutor?.org_id ?? null
+  }
   if (!orgId) {
     return NextResponse.json(
       { error: 'Organization context missing for authenticated user' },
