@@ -209,7 +209,7 @@ export function QuestionDetailDialog({ question, counterpart, onOpenChange }: Qu
                 </div>
 
                 <p className="text-sm leading-relaxed">
-                  <MathText text={counterpart.questionText.replace(/\n\s*[A-D]\).*$/gms, '').trim()} />
+                  <MathText text={counterpart.questionText.replace(/\n\s*[A-D]\)[^\n]*/g, '').trim()} />
                 </p>
 
                 <div className="space-y-1.5">

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import type { GridQuestion, GridAnswer } from '@/lib/types/database'
 
@@ -18,6 +18,13 @@ interface AnswerGridProps {
 }
 
 export function AnswerGrid({ questions, students, studentAnswers, onQuestionClick, onCounterpartClick, counterpartLoadingId }: AnswerGridProps) {
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(() => new Set(students.map((s) => s.student_id)))
+
+  const filteredStudents = useMemo(
+    () => students.filter((s) => selectedStudentIds.has(s.student_id)),
+    [students, selectedStudentIds]
+  )
+
   const answerMap = useMemo(() => {
     const map = new Map<string, GridAnswer>()
     for (const a of studentAnswers) {
@@ -28,7 +35,7 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
 
   const correctRatioMap = useMemo(() => {
     const map = new Map<string, number>()
-    const submittedStudents = students.filter((s) => s.test_submitted)
+    const submittedStudents = filteredStudents.filter((s) => s.test_submitted)
     if (submittedStudents.length === 0) return map
     for (const q of questions) {
       let correct = 0
@@ -43,21 +50,52 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
       map.set(q.id, answered > 0 ? correct / answered : -1)
     }
     return map
-  }, [questions, students, answerMap])
+  }, [questions, filteredStudents, answerMap])
+
+  const toggleStudent = (studentId: string) => {
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(studentId)) {
+        next.delete(studentId)
+      } else {
+        next.add(studentId)
+      }
+      return next
+    })
+  }
 
   if (questions.length === 0 || students.length === 0) {
     return <p className="text-center text-slate-500 py-8">No data available</p>
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {students.map((s) => {
+          const active = selectedStudentIds.has(s.student_id)
+          return (
+            <button
+              key={s.student_id}
+              onClick={() => toggleStudent(s.student_id)}
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                active
+                  ? 'bg-slate-800 text-white'
+                  : 'bg-slate-100 text-slate-400 line-through'
+              }`}
+            >
+              {s.students.name.split(' ')[0]}
+            </button>
+          )
+        })}
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="bg-slate-50">
             <th className="sticky left-0 z-10 bg-slate-50 border-b border-r border-slate-200 px-3 py-2 text-left text-xs font-medium text-slate-500">
               Q#
             </th>
-            {students.map((s) => (
+            {filteredStudents.map((s) => (
               <th
                 key={s.student_id}
                 className="border-b border-slate-200 px-2 py-2 text-center text-xs font-medium text-slate-500 whitespace-nowrap"
