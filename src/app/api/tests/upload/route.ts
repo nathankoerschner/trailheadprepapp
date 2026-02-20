@@ -1,10 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
-import { execSync } from 'child_process'
-import { readFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
-import { join } from 'path'
-import { tmpdir } from 'os'
+import { pdf } from 'pdf-to-img'
 import { extractQuestionsFromPages, type ExtractedQuestion } from '@/lib/openai/extract-questions'
 
 export async function POST(request: Request) {
@@ -61,24 +58,12 @@ interface PageData {
   storageUrl: string
 }
 
-function pdfToImages(pdfBuffer: Buffer): Buffer[] {
-  const dir = mkdtempSync(join(tmpdir(), 'pdf-'))
-  const pdfPath = join(dir, 'input.pdf')
-  writeFileSync(pdfPath, pdfBuffer)
-
-  // Use pdftoppm (poppler) to convert PDF pages to PNG
-  execSync(`pdftoppm -png -r 200 "${pdfPath}" "${join(dir, 'page')}"`)
-
-  // Read all generated PNG files in order
-  const files = readdirSync(dir)
-    .filter((f) => f.startsWith('page-') && f.endsWith('.png'))
-    .sort()
-
-  const images = files.map((f) => readFileSync(join(dir, f)))
-
-  // Cleanup
-  rmSync(dir, { recursive: true, force: true })
-
+async function pdfToImages(pdfBuffer: Buffer): Promise<Buffer[]> {
+  const images: Buffer[] = []
+  const doc = await pdf(pdfBuffer, { scale: 2 })
+  for await (const page of doc) {
+    images.push(Buffer.from(page))
+  }
   return images
 }
 
@@ -98,9 +83,9 @@ async function processTestUpload(
       contentType: 'application/pdf',
     })
 
-    // Convert PDF pages to PNG images using pdftoppm
+    // Convert PDF pages to PNG images
     console.log('Converting PDF to images...')
-    const pngBuffers = pdfToImages(buffer)
+    const pngBuffers = await pdfToImages(buffer)
     console.log(`Converted PDF to ${pngBuffers.length} PNG pages`)
 
     for (let i = 0; i < pngBuffers.length; i++) {
