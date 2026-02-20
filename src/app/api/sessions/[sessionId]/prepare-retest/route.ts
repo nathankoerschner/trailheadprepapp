@@ -16,11 +16,19 @@ export async function POST(
 
   const { data: session } = await admin
     .from('sessions')
-    .select('retest_question_count')
+    .select('test_id, retest_question_count')
     .eq('id', sessionId)
     .single()
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+
+  // Get all question IDs for this test
+  const { data: questions } = await admin
+    .from('questions')
+    .select('id')
+    .eq('test_id', session.test_id)
+
+  const allQuestionIds = questions?.map((q) => q.id) || []
 
   const { data: sessionStudents } = await admin
     .from('session_students')
@@ -29,6 +37,31 @@ export async function POST(
 
   if (!sessionStudents?.length) {
     return NextResponse.json({ error: 'No students' }, { status: 400 })
+  }
+
+  // Mark unanswered questions as incorrect for each student
+  for (const ss of sessionStudents) {
+    const { data: existingAnswers } = await admin
+      .from('student_answers')
+      .select('question_id')
+      .eq('session_id', sessionId)
+      .eq('student_id', ss.student_id)
+
+    const answeredIds = new Set(existingAnswers?.map((a) => a.question_id) || [])
+    const unansweredRows = allQuestionIds
+      .filter((id) => !answeredIds.has(id))
+      .map((id) => ({
+        session_id: sessionId,
+        student_id: ss.student_id,
+        question_id: id,
+        selected_answer: null,
+        is_correct: false,
+        answered_at: new Date().toISOString(),
+      }))
+
+    if (unansweredRows.length > 0) {
+      await admin.from('student_answers').insert(unansweredRows)
+    }
   }
 
   // Assemble retest for each student

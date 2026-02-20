@@ -41,7 +41,7 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
       let answered = 0
       for (const s of filteredStudents) {
         const a = answerMap.get(`${s.student_id}:${q.id}`)
-        if (a?.selected_answer) {
+        if (a) {
           answered++
           if (a.is_correct) correct++
         }
@@ -171,7 +171,7 @@ function ratioToStyle(ratio: number | undefined): React.CSSProperties {
 }
 
 function AnswerCell({ answer }: { answer: GridAnswer | undefined }) {
-  if (!answer || !answer.selected_answer) {
+  if (!answer) {
     return <span className="text-slate-300">—</span>
   }
 
@@ -183,9 +183,10 @@ function AnswerCell({ answer }: { answer: GridAnswer | undefined }) {
     )
   }
 
+  // Incorrect answer or unanswered (selected_answer is null)
   return (
     <span className="inline-flex h-6 w-6 items-center justify-center rounded text-xs font-bold bg-red-100 text-red-700">
-      {answer.selected_answer}
+      {answer.selected_answer || '—'}
     </span>
   )
 }
