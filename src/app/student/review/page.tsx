@@ -78,7 +78,7 @@ export default function StudentReviewPage() {
       {/* Score summary */}
       <Card className="mb-4">
         <CardContent className="py-4">
-          <h2 className="text-lg font-semibold mb-2">Test Review</h2>
+          <h2 className="text-lg font-semibold mb-2">Retest Review</h2>
           <div className="flex gap-4 text-sm">
             <span className="text-green-600 font-medium">
               {correctCount} correct
@@ -201,13 +201,7 @@ function ReviewQuestionCard({ question }: { question: ReviewQuestion }) {
   return (
     <Card>
       <CardContent className="p-4">
-        {/* Question text */}
-        {question.question_text && (
-          <p className="mb-4 text-base leading-relaxed">
-            <MathTextLazy text={question.question_text} />
-          </p>
-        )}
-
+        {/* Image above question text */}
         {question.has_graphic && question.image_url && (
           <div className="mb-4">
             <img
@@ -216,6 +210,13 @@ function ReviewQuestionCard({ question }: { question: ReviewQuestion }) {
               className="max-w-full rounded border border-slate-200"
             />
           </div>
+        )}
+
+        {/* Question text */}
+        {question.question_text && (
+          <p className="mb-4 text-base leading-relaxed">
+            <MathTextLazy text={question.question_text} />
+          </p>
         )}
 
         {/* Answer choices with correct/incorrect highlighting */}

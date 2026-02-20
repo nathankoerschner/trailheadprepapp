@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -10,12 +10,15 @@ import {
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { MathText } from '@/components/math/katex-renderer'
+import { ImageIcon, ImageOff, Pencil, Check, X } from 'lucide-react'
+import { toast } from 'sonner'
 import type { GridQuestion, AnswerChoice, CounterpartQuestion } from '@/lib/types/database'
 
 interface QuestionDetailDialogProps {
   question: GridQuestion | null
   counterpart?: CounterpartQuestion | null
   onOpenChange: (open: boolean) => void
+  onQuestionUpdate?: (questionId: string, updates: Partial<GridQuestion>) => void
 }
 
 const sectionLabels = {
@@ -24,6 +27,12 @@ const sectionLabels = {
 }
 
 const answerLetters: AnswerChoice[] = ['A', 'B', 'C', 'D']
+const answerDbKeys = {
+  A: 'answer_a',
+  B: 'answer_b',
+  C: 'answer_c',
+  D: 'answer_d',
+} as const
 const counterpartAnswerKeys: Record<AnswerChoice, keyof CounterpartQuestion> = {
   A: 'answerA',
   B: 'answerB',
@@ -31,8 +40,100 @@ const counterpartAnswerKeys: Record<AnswerChoice, keyof CounterpartQuestion> = {
   D: 'answerD',
 }
 
-export function QuestionDetailDialog({ question, counterpart, onOpenChange }: QuestionDetailDialogProps) {
+export function QuestionDetailDialog({ question, counterpart, onOpenChange, onQuestionUpdate }: QuestionDetailDialogProps) {
   const [showOriginal, setShowOriginal] = useState(true)
+  const [togglingImage, setTogglingImage] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editValues, setEditValues] = useState({
+    question_text: '',
+    answer_a: '',
+    answer_b: '',
+    answer_c: '',
+    answer_d: '',
+    correct_answer: 'A' as AnswerChoice,
+  })
+
+  // Reset edit state when question changes or dialog closes
+  useEffect(() => {
+    if (question) {
+      setEditValues({
+        question_text: question.question_text ?? '',
+        answer_a: question.answer_a ?? '',
+        answer_b: question.answer_b ?? '',
+        answer_c: question.answer_c ?? '',
+        answer_d: question.answer_d ?? '',
+        correct_answer: question.correct_answer,
+      })
+    }
+    setEditing(false)
+  }, [question])
+
+  async function saveEdits() {
+    if (!question || saving) return
+    setSaving(true)
+    try {
+      const updates: Partial<GridQuestion> = {}
+      if (editValues.question_text !== (question.question_text ?? '')) updates.question_text = editValues.question_text || null
+      if (editValues.answer_a !== (question.answer_a ?? '')) updates.answer_a = editValues.answer_a || null
+      if (editValues.answer_b !== (question.answer_b ?? '')) updates.answer_b = editValues.answer_b || null
+      if (editValues.answer_c !== (question.answer_c ?? '')) updates.answer_c = editValues.answer_c || null
+      if (editValues.answer_d !== (question.answer_d ?? '')) updates.answer_d = editValues.answer_d || null
+      if (editValues.correct_answer !== question.correct_answer) updates.correct_answer = editValues.correct_answer
+
+      if (Object.keys(updates).length === 0) {
+        setEditing(false)
+        return
+      }
+
+      const res = await fetch(`/api/questions/${question.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      if (!res.ok) throw new Error('Failed to update')
+      onQuestionUpdate?.(question.id, updates)
+      toast.success('Question updated')
+      setEditing(false)
+    } catch {
+      toast.error('Failed to update question')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function cancelEdit() {
+    if (question) {
+      setEditValues({
+        question_text: question.question_text ?? '',
+        answer_a: question.answer_a ?? '',
+        answer_b: question.answer_b ?? '',
+        answer_c: question.answer_c ?? '',
+        answer_d: question.answer_d ?? '',
+        correct_answer: question.correct_answer,
+      })
+    }
+    setEditing(false)
+  }
+
+  async function toggleImage() {
+    if (!question || togglingImage) return
+    setTogglingImage(true)
+    try {
+      const res = await fetch(`/api/questions/${question.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ has_graphic: !question.has_graphic }),
+      })
+      if (!res.ok) throw new Error('Failed to update')
+      onQuestionUpdate?.(question.id, { has_graphic: !question.has_graphic })
+      toast.success(question.has_graphic ? 'Image excluded' : 'Image included')
+    } catch {
+      toast.error('Failed to update question')
+    } finally {
+      setTogglingImage(false)
+    }
+  }
 
   return (
     <Dialog open={!!question} onOpenChange={onOpenChange}>
@@ -43,17 +144,57 @@ export function QuestionDetailDialog({ question, counterpart, onOpenChange }: Qu
               <div className="flex items-center gap-2">
                 <DialogTitle>Question {question.question_number}</DialogTitle>
                 <Badge variant="secondary">{sectionLabels[question.section]}</Badge>
+                {question.image_url && (
+                  <button
+                    type="button"
+                    onClick={toggleImage}
+                    disabled={togglingImage}
+                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      question.has_graphic
+                        ? 'border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                    }`}
+                    title={question.has_graphic ? 'Exclude image from student view' : 'Include image in student view'}
+                  >
+                    {question.has_graphic ? (
+                      <><ImageIcon className="h-3.5 w-3.5" /> Image On</>
+                    ) : (
+                      <><ImageOff className="h-3.5 w-3.5" /> Image Off</>
+                    )}
+                  </button>
+                )}
+                {!editing ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className="ml-auto flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200"
+                  >
+                    <Pencil className="h-3 w-3" /> Edit
+                  </button>
+                ) : (
+                  <div className="ml-auto flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={saveEdits}
+                      disabled={saving}
+                      className="flex items-center gap-1 rounded-full border border-green-300 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50"
+                    >
+                      <Check className="h-3 w-3" /> {saving ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      className="flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200"
+                    >
+                      <X className="h-3 w-3" /> Cancel
+                    </button>
+                  </div>
+                )}
               </div>
               <DialogDescription>
-                Correct answer: {question.correct_answer}
+                Correct answer: {editing ? editValues.correct_answer : question.correct_answer}
               </DialogDescription>
             </DialogHeader>
-
-            {question.question_text && (
-              <p className="text-sm leading-relaxed">
-                <MathText text={question.question_text} />
-              </p>
-            )}
 
             {question.has_graphic && question.image_url && (
               <div>
@@ -65,55 +206,129 @@ export function QuestionDetailDialog({ question, counterpart, onOpenChange }: Qu
               </div>
             )}
 
-            {question.answers_are_visual ? (
-              <div className="flex gap-2">
-                {answerLetters.map((letter) => (
-                  <div
-                    key={letter}
-                    className={`flex h-10 w-10 items-center justify-center rounded-lg border text-sm font-bold ${
-                      letter === question.correct_answer
-                        ? 'border-green-500 bg-green-50 text-green-700'
-                        : 'border-slate-200 text-slate-500'
-                    }`}
-                  >
-                    {letter}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {answerLetters.map((letter) => {
-                  const key = `answer_${letter.toLowerCase()}` as keyof GridQuestion
-                  const text = question[key] as string | null
-                  if (!text) return null
+            {editing ? (
+              /* Edit mode */
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">Question Text</label>
+                  <textarea
+                    value={editValues.question_text}
+                    onChange={(e) => setEditValues((v) => ({ ...v, question_text: e.target.value }))}
+                    rows={3}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                  />
+                </div>
 
-                  const isCorrect = letter === question.correct_answer
-
+                {!question.answers_are_visual && answerLetters.map((letter) => {
+                  const dbKey = answerDbKeys[letter]
+                  const isCorrect = editValues.correct_answer === letter
                   return (
-                    <div
-                      key={letter}
-                      className={`flex items-center gap-3 rounded-lg border p-3 ${
-                        isCorrect
-                          ? 'border-green-500 bg-green-50'
-                          : 'border-slate-200'
-                      }`}
-                    >
-                      <span
-                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                    <div key={letter} className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditValues((v) => ({ ...v, correct_answer: letter }))}
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition-colors ${
                           isCorrect
                             ? 'bg-green-600 text-white'
-                            : 'bg-slate-100 text-slate-500'
+                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                         }`}
+                        title={`Set ${letter} as correct answer`}
                       >
                         {letter}
-                      </span>
-                      <span className="text-sm">
-                        <MathText text={text} />
-                      </span>
+                      </button>
+                      <input
+                        type="text"
+                        value={editValues[dbKey]}
+                        onChange={(e) => setEditValues((v) => ({ ...v, [dbKey]: e.target.value }))}
+                        className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                          isCorrect
+                            ? 'border-green-400 bg-green-50 focus:border-green-500 focus:ring-green-500'
+                            : 'border-slate-300 focus:border-slate-500 focus:ring-slate-500'
+                        }`}
+                      />
                     </div>
                   )
                 })}
+
+                {question.answers_are_visual && (
+                  <div className="flex gap-2">
+                    {answerLetters.map((letter) => (
+                      <button
+                        key={letter}
+                        type="button"
+                        onClick={() => setEditValues((v) => ({ ...v, correct_answer: letter }))}
+                        className={`flex h-10 w-10 items-center justify-center rounded-lg border text-sm font-bold transition-colors ${
+                          letter === editValues.correct_answer
+                            ? 'border-green-500 bg-green-50 text-green-700'
+                            : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                        }`}
+                      >
+                        {letter}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+            ) : (
+              /* Read-only mode */
+              <>
+                {question.question_text && (
+                  <p className="text-sm leading-relaxed">
+                    <MathText text={question.question_text} />
+                  </p>
+                )}
+
+                {question.answers_are_visual ? (
+                  <div className="flex gap-2">
+                    {answerLetters.map((letter) => (
+                      <div
+                        key={letter}
+                        className={`flex h-10 w-10 items-center justify-center rounded-lg border text-sm font-bold ${
+                          letter === question.correct_answer
+                            ? 'border-green-500 bg-green-50 text-green-700'
+                            : 'border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {letter}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {answerLetters.map((letter) => {
+                      const key = `answer_${letter.toLowerCase()}` as keyof GridQuestion
+                      const text = question[key] as string | null
+                      if (!text) return null
+
+                      const isCorrect = letter === question.correct_answer
+
+                      return (
+                        <div
+                          key={letter}
+                          className={`flex items-center gap-3 rounded-lg border p-3 ${
+                            isCorrect
+                              ? 'border-green-500 bg-green-50'
+                              : 'border-slate-200'
+                          }`}
+                        >
+                          <span
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                              isCorrect
+                                ? 'bg-green-600 text-white'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {letter}
+                          </span>
+                          <span className="text-sm">
+                            <MathText text={text} />
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
@@ -137,13 +352,26 @@ export function QuestionDetailDialog({ question, counterpart, onOpenChange }: Qu
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold text-slate-700">Original</h3>
                   <Badge variant="secondary">{sectionLabels[question.section]}</Badge>
+                  {question.image_url && (
+                    <button
+                      type="button"
+                      onClick={toggleImage}
+                      disabled={togglingImage}
+                      className={`ml-auto flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors ${
+                        question.has_graphic
+                          ? 'border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                      }`}
+                      title={question.has_graphic ? 'Exclude image' : 'Include image'}
+                    >
+                      {question.has_graphic ? (
+                        <><ImageIcon className="h-3 w-3" /> On</>
+                      ) : (
+                        <><ImageOff className="h-3 w-3" /> Off</>
+                      )}
+                    </button>
+                  )}
                 </div>
-
-                {question.question_text && (
-                  <p className="text-sm leading-relaxed">
-                    <MathText text={question.question_text} />
-                  </p>
-                )}
 
                 {question.has_graphic && question.image_url && (
                   <div>
@@ -153,6 +381,12 @@ export function QuestionDetailDialog({ question, counterpart, onOpenChange }: Qu
                       className="max-w-full rounded border border-slate-200"
                     />
                   </div>
+                )}
+
+                {question.question_text && (
+                  <p className="text-sm leading-relaxed">
+                    <MathText text={question.question_text} />
+                  </p>
                 )}
 
                 {question.answers_are_visual ? (

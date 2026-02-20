@@ -247,6 +247,18 @@ export default function SessionControlPage() {
         question={selectedQuestion}
         counterpart={counterpartData}
         onOpenChange={(open) => { if (!open) { setSelectedQuestion(null); setCounterpartData(null) } }}
+        onQuestionUpdate={(questionId, updates) => {
+          setSelectedQuestion((prev) => prev ? { ...prev, ...updates } : prev)
+          setSession((prev) => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              questions: prev.questions?.map((q) =>
+                q.id === questionId ? { ...q, ...updates } : q
+              ),
+            }
+          })
+        }}
       />
     </div>
   )

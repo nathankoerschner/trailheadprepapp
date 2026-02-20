@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Save, AlertTriangle, Crop, RotateCcw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Save, AlertTriangle, Crop, RotateCcw, ImageIcon, ImageOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -154,6 +154,37 @@ export default function ReviewCarousel() {
               </CardTitle>
               {question.image_url && (
                 <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const newVal = !question.has_graphic
+                      const res = await fetch(`/api/questions/${question.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ has_graphic: newVal }),
+                      })
+                      if (res.ok) {
+                        setQuestions((prev) =>
+                          prev.map((q) => q.id === question.id ? { ...q, has_graphic: newVal } : q)
+                        )
+                        toast.success(newVal ? 'Image included' : 'Image excluded')
+                      } else {
+                        toast.error('Failed to update')
+                      }
+                    }}
+                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      question.has_graphic
+                        ? 'border-green-300 bg-green-50 text-green-700 hover:bg-green-100'
+                        : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                    }`}
+                    title={question.has_graphic ? 'Image will be shown to students' : 'Image will be hidden from students'}
+                  >
+                    {question.has_graphic ? (
+                      <><ImageIcon className="h-3.5 w-3.5" /> Included</>
+                    ) : (
+                      <><ImageOff className="h-3.5 w-3.5" /> Excluded</>
+                    )}
+                  </button>
                   <Button
                     variant="ghost"
                     size="sm"

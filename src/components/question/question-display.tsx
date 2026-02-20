@@ -36,14 +36,7 @@ export function QuestionDisplay({
   return (
     <Card>
       <CardContent className="p-4">
-        {/* Question text */}
-        {questionText && (
-          <p className="mb-4 text-base leading-relaxed">
-            <MathText text={questionText} />
-          </p>
-        )}
-
-        {/* Show image only for questions with graphics (charts, graphs, diagrams) */}
+        {/* Show image above question text for questions with graphics */}
         {hasGraphic && imageUrl && (
           <div className="mb-4">
             <img
@@ -52,6 +45,13 @@ export function QuestionDisplay({
               className="max-w-full rounded border border-slate-200"
             />
           </div>
+        )}
+
+        {/* Question text */}
+        {questionText && (
+          <p className="mb-4 text-base leading-relaxed">
+            <MathText text={questionText} />
+          </p>
         )}
 
         {/* Answer choices */}
