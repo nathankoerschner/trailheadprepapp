@@ -37,7 +37,7 @@ export function MathText({ text, className }: { text: string; className?: string
   const parts = text.split(/(\$\$[\s\S]*?\$\$|\$[^$]*?\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g)
 
   return (
-    <span className={className}>
+    <span className={className} style={{ whiteSpace: 'pre-wrap' }}>
       {parts.map((part, i) => {
         if (part.startsWith('$$') && part.endsWith('$$')) {
           return <KaTeXRenderer key={i} math={part.slice(2, -2)} display />
