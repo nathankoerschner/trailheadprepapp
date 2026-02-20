@@ -28,7 +28,7 @@ export async function GET(
     const [{ data: questions }, { data: studentAnswers }] = await Promise.all([
       supabase
         .from('questions')
-        .select('id, question_number, question_text, answer_a, answer_b, answer_c, answer_d, correct_answer, section, has_graphic, graphic_url, image_url, answers_are_visual')
+        .select('id, question_number, question_text, answer_a, answer_b, answer_c, answer_d, correct_answer, section, concept_tag, has_graphic, graphic_url, image_url, answers_are_visual')
         .eq('test_id', session.test_id)
         .order('question_number'),
       supabase

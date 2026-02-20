@@ -10,75 +10,19 @@ export async function assembleRetest(
   // Get questions the student missed
   const { data: missedAnswers } = await supabase
     .from('student_answers')
-    .select('question_id, questions(id, section, concept_tag)')
+    .select('question_id')
     .eq('session_id', sessionId)
     .eq('student_id', studentId)
     .eq('is_correct', false)
 
   const missedQuestionIds = missedAnswers?.map((a) => a.question_id) || []
 
-  // Get the session's test for padding questions
-  const { data: session } = await supabase
-    .from('sessions')
-    .select('test_id')
-    .eq('id', sessionId)
-    .single()
-
-  let retestQuestions: Array<{ questionId: string; source: 'missed' | 'padding'; order: number }> = []
-
-  // Add missed questions
-  missedQuestionIds.forEach((id, idx) => {
-    retestQuestions.push({ questionId: id, source: 'missed', order: idx + 1 })
-  })
-
-  // If fewer than target, pad with related questions from concepts covered in lesson
-  if (retestQuestions.length < targetCount && session?.test_id) {
-    // Get concepts from missed questions
-    const missedConcepts = new Set(
-      missedAnswers
-        ?.map((a) => (a.questions as unknown as { concept_tag: string })?.concept_tag)
-        .filter(Boolean) || []
-    )
-
-    // Find other questions from the same concepts that weren't missed
-    const { data: paddingQuestions } = await supabase
-      .from('questions')
-      .select('id')
-      .eq('test_id', session.test_id)
-      .in('concept_tag', Array.from(missedConcepts))
-      .not('id', 'in', `(${missedQuestionIds.join(',')})`)
-      .limit(targetCount - retestQuestions.length)
-
-    paddingQuestions?.forEach((q) => {
-      retestQuestions.push({
-        questionId: q.id,
-        source: 'padding',
-        order: retestQuestions.length + 1,
-      })
-    })
-  }
-
-  // If still not enough, grab random questions from the test
-  if (retestQuestions.length < targetCount && session?.test_id) {
-    const existingIds = retestQuestions.map((r) => r.questionId)
-    const { data: extraQuestions } = await supabase
-      .from('questions')
-      .select('id')
-      .eq('test_id', session.test_id)
-      .not('id', 'in', `(${existingIds.join(',')})`)
-      .limit(targetCount - retestQuestions.length)
-
-    extraQuestions?.forEach((q) => {
-      retestQuestions.push({
-        questionId: q.id,
-        source: 'padding',
-        order: retestQuestions.length + 1,
-      })
-    })
-  }
-
-  // Trim to target count
-  retestQuestions = retestQuestions.slice(0, targetCount)
+  // Retest = only missed questions, capped at target count
+  const retestQuestions = missedQuestionIds.slice(0, targetCount).map((id, idx) => ({
+    questionId: id,
+    source: 'missed' as const,
+    order: idx + 1,
+  }))
 
   // Save retest questions
   if (retestQuestions.length > 0) {

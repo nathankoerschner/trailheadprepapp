@@ -110,6 +110,15 @@ export interface RetestAnswer {
   answered_at: string
 }
 
+export interface CounterpartQuestion {
+  questionText: string
+  answerA: string
+  answerB: string
+  answerC: string
+  answerD: string
+  correctAnswer: AnswerChoice
+}
+
 export interface GridQuestion {
   id: string
   question_number: number
@@ -120,6 +129,7 @@ export interface GridQuestion {
   answer_d: string | null
   correct_answer: AnswerChoice
   section: QuestionSection
+  concept_tag: string | null
   has_graphic: boolean
   graphic_url: string | null
   image_url: string | null

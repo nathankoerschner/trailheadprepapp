@@ -10,7 +10,7 @@ import { usePolling } from '@/lib/hooks/use-polling'
 import { toast } from 'sonner'
 import { AnswerGrid } from '@/components/session/answer-grid'
 import { QuestionDetailDialog } from '@/components/session/question-detail-dialog'
-import type { SessionStatus, GridQuestion, GridAnswer } from '@/lib/types/database'
+import type { SessionStatus, GridQuestion, GridAnswer, CounterpartQuestion } from '@/lib/types/database'
 
 interface SessionData {
   id: string
@@ -57,6 +57,8 @@ export default function SessionControlPage() {
   const [session, setSession] = useState<SessionData | null>(null)
   const [advancing, setAdvancing] = useState(false)
   const [selectedQuestion, setSelectedQuestion] = useState<GridQuestion | null>(null)
+  const [counterpartData, setCounterpartData] = useState<CounterpartQuestion | null>(null)
+  const [counterpartLoadingId, setCounterpartLoadingId] = useState<string | null>(null)
 
   const loadSession = useCallback(async () => {
     const res = await fetch(`/api/sessions/${sessionId}`)
@@ -80,6 +82,23 @@ export default function SessionControlPage() {
       toast.error('Failed to advance')
     }
     setAdvancing(false)
+  }
+
+  async function handleCounterpartClick(question: GridQuestion) {
+    setCounterpartLoadingId(question.id)
+    try {
+      const res = await fetch(`/api/questions/${question.id}/counterpart`)
+      if (res.ok) {
+        const data = await res.json()
+        setCounterpartData(data.counterpart)
+        setSelectedQuestion(question)
+      } else {
+        toast.error('Failed to generate counterpart')
+      }
+    } catch {
+      toast.error('Failed to generate counterpart')
+    }
+    setCounterpartLoadingId(null)
   }
 
   if (!session) return <p className="text-slate-500">Loading session...</p>
@@ -186,7 +205,9 @@ export default function SessionControlPage() {
             questions={session.questions}
             students={session.session_students}
             studentAnswers={session.student_answers || []}
-            onQuestionClick={setSelectedQuestion}
+            onQuestionClick={(q) => { setCounterpartData(null); setSelectedQuestion(q) }}
+            onCounterpartClick={handleCounterpartClick}
+            counterpartLoadingId={counterpartLoadingId}
           />
         </div>
       )}
@@ -224,7 +245,8 @@ export default function SessionControlPage() {
       {/* Question detail popup */}
       <QuestionDetailDialog
         question={selectedQuestion}
-        onOpenChange={(open) => { if (!open) setSelectedQuestion(null) }}
+        counterpart={counterpartData}
+        onOpenChange={(open) => { if (!open) { setSelectedQuestion(null); setCounterpartData(null) } }}
       />
     </div>
   )

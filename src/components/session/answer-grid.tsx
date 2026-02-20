@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { Sparkles } from 'lucide-react'
 import type { GridQuestion, GridAnswer } from '@/lib/types/database'
 
 interface AnswerGridProps {
@@ -12,9 +13,11 @@ interface AnswerGridProps {
   }>
   studentAnswers: GridAnswer[]
   onQuestionClick: (question: GridQuestion) => void
+  onCounterpartClick?: (question: GridQuestion) => void
+  counterpartLoadingId?: string | null
 }
 
-export function AnswerGrid({ questions, students, studentAnswers, onQuestionClick }: AnswerGridProps) {
+export function AnswerGrid({ questions, students, studentAnswers, onQuestionClick, onCounterpartClick, counterpartLoadingId }: AnswerGridProps) {
   const answerMap = useMemo(() => {
     const map = new Map<string, GridAnswer>()
     for (const a of studentAnswers) {
@@ -49,12 +52,24 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
           {questions.map((q) => (
             <tr key={q.id} className="hover:bg-slate-50/50">
               <td className="sticky left-0 z-10 bg-white border-b border-r border-slate-200 px-3 py-1.5">
-                <button
-                  onClick={() => onQuestionClick(q)}
-                  className="rounded px-1.5 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
-                >
-                  Q{q.question_number}
-                </button>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => onQuestionClick(q)}
+                    className="rounded px-1.5 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+                  >
+                    Q{q.question_number}
+                  </button>
+                  {onCounterpartClick && (
+                    <button
+                      onClick={() => onCounterpartClick(q)}
+                      disabled={counterpartLoadingId === q.id}
+                      className="rounded p-0.5 text-slate-400 hover:text-amber-500 hover:bg-amber-50 transition-colors disabled:opacity-50"
+                      title="AI counterpart question"
+                    >
+                      <Sparkles className={`h-3 w-3 ${counterpartLoadingId === q.id ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
+                </div>
               </td>
               {students.map((s) => {
                 const answer = answerMap.get(`${s.student_id}:${q.id}`)
