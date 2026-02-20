@@ -13,12 +13,11 @@ export default async function TutorLayout({
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) redirect('/login')
-
-  const { data: tutor } = await supabase
-    .from('tutors')
-    .select('name, org_id')
-    .eq('id', user.id)
-    .single()
+  const displayName =
+    (typeof user.user_metadata?.name === 'string' && user.user_metadata.name.trim()) ||
+    (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+    user.email ||
+    ''
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -28,7 +27,7 @@ export default async function TutorLayout({
             Trailhead Prep
           </Link>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-600">{tutor?.name}</span>
+            <span className="text-sm text-slate-600">{displayName}</span>
             <TutorNav />
           </div>
         </div>

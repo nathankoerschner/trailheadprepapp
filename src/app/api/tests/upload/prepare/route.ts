@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveOrgIdFromUser } from '@/lib/auth/org-context'
 import { NextResponse } from 'next/server'
 
 interface PrepareUploadFile {
@@ -31,13 +32,13 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: tutor } = await supabase
-    .from('tutors')
-    .select('org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!tutor) return NextResponse.json({ error: 'Tutor not found' }, { status: 404 })
+  const orgId = resolveOrgIdFromUser(user)
+  if (!orgId) {
+    return NextResponse.json(
+      { error: 'Organization context missing for authenticated user' },
+      { status: 403 }
+    )
+  }
 
   let body: PrepareUploadRequest
   try {
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
   const { data: test, error: testError } = await supabase
     .from('tests')
     .insert({
-      org_id: tutor.org_id,
+      org_id: orgId,
       name: testName,
       created_by: user.id,
       status: 'processing',
@@ -89,7 +90,7 @@ export async function POST(request: Request) {
     const page = pages[i]
     const mimeType = page.mimeType || 'image/png'
     const ext = guessExtension(page.name, mimeType)
-    const path = `${tutor.org_id}/${test.id}/pages/page-${i + 1}.${ext}`
+    const path = `${orgId}/${test.id}/pages/page-${i + 1}.${ext}`
     const { data: signed, error } = await admin.storage
       .from('test-images')
       .createSignedUploadUrl(path)
@@ -120,7 +121,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'originalPdf must be a PDF file' }, { status: 400 })
     }
     const ext = guessExtension(body.originalPdf.name, mimeType)
-    const path = `${tutor.org_id}/${test.id}/original.${ext}`
+    const path = `${orgId}/${test.id}/original.${ext}`
     const { data: signed, error } = await admin.storage
       .from('test-images')
       .createSignedUploadUrl(path)

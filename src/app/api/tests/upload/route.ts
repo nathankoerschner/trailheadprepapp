@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveOrgIdFromUser } from '@/lib/auth/org-context'
 import { NextResponse } from 'next/server'
 import { extractQuestionsFromPages, type ExtractedQuestion } from '@/lib/openai/extract-questions'
 
@@ -20,13 +21,13 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: tutor } = await supabase
-    .from('tutors')
-    .select('org_id')
-    .eq('id', user.id)
-    .single()
-
-  if (!tutor) return NextResponse.json({ error: 'Tutor not found' }, { status: 404 })
+  const orgId = resolveOrgIdFromUser(user)
+  if (!orgId) {
+    return NextResponse.json(
+      { error: 'Organization context missing for authenticated user' },
+      { status: 403 }
+    )
+  }
 
   const admin = createAdminClient()
   const contentType = request.headers.get('content-type') || ''
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'All page files must be images' }, { status: 400 })
     }
 
-    const expectedPrefix = `${tutor.org_id}/${testId}/`
+    const expectedPrefix = `${orgId}/${testId}/`
     const hasInvalidPath = normalizedRefs.some((page) => !page.path.startsWith(expectedPrefix))
     if (hasInvalidPath || (originalPdfPath && !originalPdfPath.startsWith(expectedPrefix))) {
       return NextResponse.json({ error: 'Invalid storage path' }, { status: 400 })
@@ -72,14 +73,14 @@ export async function POST(request: Request) {
       .from('tests')
       .select('id')
       .eq('id', testId)
-      .eq('org_id', tutor.org_id)
+      .eq('org_id', orgId)
       .single()
 
     if (!test) {
       return NextResponse.json({ error: 'Test not found' }, { status: 404 })
     }
 
-    processStoredUpload(normalizedRefs, originalPdfPath, test.id, tutor.org_id, admin).catch(async (err) => {
+    processStoredUpload(normalizedRefs, originalPdfPath, test.id, orgId, admin).catch(async (err) => {
       console.error('Test processing failed:', err)
       await admin.from('tests').update({ status: 'error' }).eq('id', test.id)
     })
@@ -112,7 +113,7 @@ export async function POST(request: Request) {
   const { data: test, error: testError } = await supabase
     .from('tests')
     .insert({
-      org_id: tutor.org_id,
+      org_id: orgId,
       name: testName,
       created_by: user.id,
       status: 'processing',
@@ -125,7 +126,7 @@ export async function POST(request: Request) {
   }
 
   // Legacy multipart fallback
-  processMultipartUpload(normalizedPages, pdfFile, test.id, tutor.org_id, admin).catch(async (err) => {
+  processMultipartUpload(normalizedPages, pdfFile, test.id, orgId, admin).catch(async (err) => {
     console.error('Test processing failed:', err)
     await admin.from('tests').update({ status: 'error' }).eq('id', test.id)
   })

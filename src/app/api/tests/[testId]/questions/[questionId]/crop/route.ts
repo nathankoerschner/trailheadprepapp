@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveOrgIdFromUser } from '@/lib/auth/org-context'
 import { NextResponse } from 'next/server'
 
 export async function POST(
@@ -11,13 +12,13 @@ export async function POST(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Get tutor's org_id
-  const { data: tutor } = await supabase
-    .from('tutors')
-    .select('org_id')
-    .eq('id', user.id)
-    .single()
-  if (!tutor) return NextResponse.json({ error: 'Tutor not found' }, { status: 404 })
+  const orgId = resolveOrgIdFromUser(user)
+  if (!orgId) {
+    return NextResponse.json(
+      { error: 'Organization context missing for authenticated user' },
+      { status: 403 }
+    )
+  }
 
   // Get the current question
   const { data: question } = await supabase
@@ -34,7 +35,7 @@ export async function POST(
 
   const admin = createAdminClient()
   const buffer = Buffer.from(await file.arrayBuffer())
-  const storagePath = `${tutor.org_id}/${testId}/crops/q-${questionId}.png`
+  const storagePath = `${orgId}/${testId}/crops/q-${questionId}.png`
 
   // Upload cropped image (upsert to allow re-cropping)
   const { error: uploadError } = await admin.storage

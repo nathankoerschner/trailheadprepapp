@@ -8,16 +8,13 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { toast } from 'sonner'
 import type { Student } from '@/lib/types/database'
+import { resolveOrgIdFromUser } from '@/lib/auth/org-context'
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [newName, setNewName] = useState('')
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
-
-  useEffect(() => {
-    loadStudents()
-  }, [])
 
   async function loadStudents() {
     const { data } = await supabase
@@ -28,13 +25,36 @@ export default function StudentsPage() {
     setLoading(false)
   }
 
+  useEffect(() => {
+    let cancelled = false
+
+    supabase
+      .from('students')
+      .select('*')
+      .order('name')
+      .then(({ data }) => {
+        if (cancelled) return
+        setStudents(data || [])
+        setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [supabase])
+
   async function addStudent(e: React.FormEvent) {
     e.preventDefault()
     if (!newName.trim()) return
+    const orgId = await getOrgId()
+    if (!orgId) {
+      toast.error('Organization context missing for this account')
+      return
+    }
 
     const { error } = await supabase
       .from('students')
-      .insert({ name: newName.trim(), org_id: (await getOrgId()) })
+      .insert({ name: newName.trim(), org_id: orgId })
 
     if (error) {
       toast.error('Failed to add student')
@@ -56,14 +76,10 @@ export default function StudentsPage() {
     loadStudents()
   }
 
-  async function getOrgId(): Promise<string> {
+  async function getOrgId(): Promise<string | null> {
     const { data: { user } } = await supabase.auth.getUser()
-    const { data: tutor } = await supabase
-      .from('tutors')
-      .select('org_id')
-      .eq('id', user!.id)
-      .single()
-    return tutor!.org_id
+    if (!user) return null
+    return resolveOrgIdFromUser(user)
   }
 
   return (
