@@ -140,8 +140,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Test not found' }, { status: 404 })
     }
 
+    console.log(`[upload] Starting stored upload processing for test ${test.id} — ${normalizedRefs.length} page(s), org ${orgId}`)
     processStoredUpload(normalizedRefs, originalPdfPath, test.id, orgId, admin).catch(async (err) => {
-      console.error('Test processing failed:', err)
+      console.error(`[upload] Test ${test.id} processing FAILED:`, err)
       await admin.from('tests').update({ status: 'error' }).eq('id', test.id)
     })
 
@@ -186,8 +187,9 @@ export async function POST(request: Request) {
   }
 
   // Legacy multipart fallback
+  console.log(`[upload] Starting multipart upload processing for test ${test.id} — ${normalizedPages.length} page(s), org ${orgId}`)
   processMultipartUpload(normalizedPages, pdfFile, test.id, orgId, admin).catch(async (err) => {
-    console.error('Test processing failed:', err)
+    console.error(`[upload] Test ${test.id} multipart processing FAILED:`, err)
     await admin.from('tests').update({ status: 'error' }).eq('id', test.id)
   })
 
@@ -214,6 +216,9 @@ async function processStoredUpload(
   orgId: string,
   admin: ReturnType<typeof createAdminClient>
 ) {
+  const pipelineStart = Date.now()
+  console.log(`[upload:${testId.slice(0, 8)}] Pipeline started — downloading ${pageRefs.length} page(s) from storage`)
+
   const expectedPrefix = `${orgId}/${testId}/`
   if (originalPdfPath && !originalPdfPath.startsWith(expectedPrefix)) {
     throw new Error('Invalid original PDF storage path')
@@ -226,12 +231,17 @@ async function processStoredUpload(
       throw new Error(`Invalid page storage path: ${pageRef.path}`)
     }
 
+    const dlStart = Date.now()
     const { data, error } = await admin.storage.from('test-images').download(pageRef.path)
     if (error || !data) {
+      console.error(`[upload:${testId.slice(0, 8)}] Failed to download ${pageRef.path}:`, error)
       throw new Error(`Failed to download page image: ${pageRef.path}`)
     }
 
     const pageBuffer = Buffer.from(await data.arrayBuffer())
+    const dlElapsed = ((Date.now() - dlStart) / 1000).toFixed(1)
+    console.log(`[upload:${testId.slice(0, 8)}] Downloaded page ${pageRef.pageNumber} (${Math.round(pageBuffer.length / 1024)}KB) in ${dlElapsed}s`)
+
     const { data: pageUrl } = admin.storage.from('test-images').getPublicUrl(pageRef.path)
 
     pages.push({
@@ -241,7 +251,13 @@ async function processStoredUpload(
     })
   }
 
+  const downloadElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1)
+  console.log(`[upload:${testId.slice(0, 8)}] All pages downloaded in ${downloadElapsed}s — starting extraction`)
+
   await extractAndStoreQuestions(pages, testId, admin)
+
+  const totalElapsed = ((Date.now() - pipelineStart) / 1000).toFixed(1)
+  console.log(`[upload:${testId.slice(0, 8)}] Pipeline complete in ${totalElapsed}s`)
 }
 
 async function processMultipartUpload(
@@ -294,13 +310,17 @@ async function extractAndStoreQuestions(
   testId: string,
   admin: ReturnType<typeof createAdminClient>
 ) {
+  const tag = `[extract:${testId.slice(0, 8)}]`
+  const extractionStart = Date.now()
+
   // Pass 1: Extract questions page-by-page to maximize coverage
   const allQuestions: ExtractedQuestion[] = []
   // Track which page each question came from
   const questionPageMap: number[] = []
 
+  console.log(`${tag} Pass 1: Extracting questions from ${pages.length} page(s)...`)
   for (let i = 0; i < pages.length; i++) {
-    console.log(`Extracting questions from page ${i + 1}/${pages.length}...`)
+    console.log(`${tag} Page ${i + 1}/${pages.length} — sending to OpenAI...`)
     const questions = await extractQuestionsFromPages(
       [{ base64: pages[i].base64, mimeType: pages[i].mimeType }],
       i + 1,
@@ -309,15 +329,24 @@ async function extractAndStoreQuestions(
       allQuestions.push(q)
       questionPageMap.push(i)
     }
-    console.log(`Found ${questions.length} questions on page ${i + 1} (${allQuestions.length} total)`)
+    console.log(`${tag} Page ${i + 1}: found ${questions.length} questions (${allQuestions.length} cumulative)`)
   }
 
+  const pass1Elapsed = ((Date.now() - extractionStart) / 1000).toFixed(1)
+  console.log(`${tag} Pass 1 complete in ${pass1Elapsed}s — ${allQuestions.length} questions found`)
+
   // Pass 2: Re-extract R/W questions missing passage context using page pairs
+  const reextractCandidates = allQuestions.filter(
+    (q, idx) => q.section === 'reading_writing' && (q.questionText || '').length < 120 && questionPageMap[idx] > 0
+  )
+  console.log(`${tag} Pass 2: ${reextractCandidates.length} R/W question(s) need passage context re-extraction`)
+
+  const pass2Start = Date.now()
   for (let idx = 0; idx < allQuestions.length; idx++) {
     const q = allQuestions[idx]
     const pageIdx = questionPageMap[idx]
     if (q.section === 'reading_writing' && (q.questionText || '').length < 120 && pageIdx > 0) {
-      console.log(`Re-extracting Q${q.questionNumber} with previous page for passage context...`)
+      console.log(`${tag} Re-extracting Q${q.questionNumber} (${(q.questionText || '').length} chars) with page pair ${pageIdx}+${pageIdx + 1}...`)
       const paired = await extractQuestionsFromPages(
         [
           { base64: pages[pageIdx - 1].base64, mimeType: pages[pageIdx - 1].mimeType },
@@ -329,10 +358,15 @@ async function extractAndStoreQuestions(
       const match = paired.find((p) => p.questionNumber === q.questionNumber)
       if (match && (match.questionText || '').length > (q.questionText || '').length) {
         allQuestions[idx] = match
-        console.log(`  Replaced with ${match.questionText.length} chars (was ${(q.questionText || '').length})`)
+        console.log(`${tag}   Q${q.questionNumber} replaced: ${(q.questionText || '').length} → ${match.questionText.length} chars`)
+      } else {
+        console.log(`${tag}   Q${q.questionNumber} kept original (no improvement)`)
       }
     }
   }
+
+  const pass2Elapsed = ((Date.now() - pass2Start) / 1000).toFixed(1)
+  console.log(`${tag} Pass 2 complete in ${pass2Elapsed}s`)
 
   // Filter out empty questions but keep ones with invalid answers (flag for review)
   const validAnswers = new Set(['A', 'B', 'C', 'D'])
@@ -345,7 +379,7 @@ async function extractAndStoreQuestions(
   }
 
   let flaggedCount = 0
-  console.log(`${withText.length} questions with text out of ${allQuestions.length} extracted`)
+  console.log(`${tag} ${withText.length} questions with text out of ${allQuestions.length} extracted`)
 
   // Insert questions — use sequential numbering to avoid unique constraint violations
   if (withText.length > 0) {
@@ -373,17 +407,19 @@ async function extractAndStoreQuestions(
     })
 
     if (flaggedCount > 0) {
-      console.log(`${flaggedCount} questions flagged for review (invalid correct_answer, confidence set to 0)`)
+      console.log(`${tag} ${flaggedCount} questions flagged for review (invalid correct_answer, confidence set to 0)`)
     }
 
     const { error: insertError } = await admin.from('questions').insert(rows)
     if (insertError) {
-      console.error('Question insert error:', insertError)
+      console.error(`${tag} Question insert FAILED:`, insertError)
+      throw new Error(`Failed to insert questions: ${insertError.message}`)
     }
+    console.log(`${tag} Inserted ${rows.length} questions into database`)
   }
 
   // Update test status
-  await admin
+  const { error: updateError } = await admin
     .from('tests')
     .update({
       status: 'ready',
@@ -391,5 +427,10 @@ async function extractAndStoreQuestions(
     })
     .eq('id', testId)
 
-  console.log(`Test ${testId} processing complete: ${allQuestions.length} questions extracted`)
+  if (updateError) {
+    console.error(`${tag} Failed to update test status to ready:`, updateError)
+  }
+
+  const totalElapsed = ((Date.now() - extractionStart) / 1000).toFixed(1)
+  console.log(`${tag} Extraction complete in ${totalElapsed}s — ${withText.length} questions stored`)
 }

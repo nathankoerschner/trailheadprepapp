@@ -70,34 +70,55 @@ export async function extractQuestionsFromPages(
     ? `page ${startPageNumber}`
     : `pages ${startPageNumber}-${startPageNumber + pages.length - 1}`
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-5.2',
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: [
-          ...imageContent,
-          {
-            type: 'text' as const,
-            text: `Extract ALL SAT questions from ${pageLabel}. Include the full passage text in questionText for reading/writing questions. Return a JSON object with a "questions" array.`,
-          },
-        ],
-      },
-    ],
-    response_format: { type: 'json_object' },
-    max_tokens: 8192,
-  })
+  const startTime = Date.now()
+  console.log(`[extract] OpenAI request starting for ${pageLabel} (${pages.length} image(s), ${pages.map(p => Math.round(p.base64.length / 1024)).join('+')}KB base64)`)
+
+  let response: Awaited<ReturnType<typeof openai.chat.completions.create>>
+  try {
+    response = await openai.chat.completions.create({
+      model: 'gpt-5.2',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: [
+            ...imageContent,
+            {
+              type: 'text' as const,
+              text: `Extract ALL SAT questions from ${pageLabel}. Include the full passage text in questionText for reading/writing questions. Return a JSON object with a "questions" array.`,
+            },
+          ],
+        },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 8192,
+    })
+  } catch (err) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+    console.error(`[extract] OpenAI request FAILED for ${pageLabel} after ${elapsed}s:`, err)
+    throw err
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+  const usage = response.usage
+  console.log(`[extract] OpenAI response for ${pageLabel} in ${elapsed}s — tokens: ${usage?.prompt_tokens ?? '?'} prompt, ${usage?.completion_tokens ?? '?'} completion, finish: ${response.choices[0]?.finish_reason ?? 'unknown'}`)
 
   const content = response.choices[0]?.message?.content
-  if (!content) return []
+  if (!content) {
+    console.warn(`[extract] Empty response content for ${pageLabel}`)
+    return []
+  }
 
   try {
     const parsed = JSON.parse(content)
     const questions = parsed.questions || parsed
-    if (!Array.isArray(questions)) return []
+    if (!Array.isArray(questions)) {
+      console.warn(`[extract] Response for ${pageLabel} was not an array — got ${typeof questions}`)
+      return []
+    }
     return questions
-  } catch {
+  } catch (parseErr) {
+    console.error(`[extract] JSON parse failed for ${pageLabel}:`, parseErr, '— raw content (first 500 chars):', content.slice(0, 500))
     return []
   }
 }
