@@ -70,6 +70,10 @@ async function resolveOrgIdForUpload(
   return orgId
 }
 
+export const maxDuration = 300
+
+const EXTRACTION_CONCURRENCY = 5
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -314,23 +318,40 @@ async function extractAndStoreQuestions(
   const tag = `[extract:${testId.slice(0, 8)}]`
   const extractionStart = Date.now()
 
-  // Pass 1: Extract questions page-by-page to maximize coverage
+  // Pass 1: Extract questions page-by-page with parallel concurrency
   const allQuestions: ExtractedQuestion[] = []
-  // Track which page each question came from
   const questionPageMap: number[] = []
 
-  console.log(`${tag} Pass 1: Extracting questions from ${pages.length} page(s)...`)
-  for (let i = 0; i < pages.length; i++) {
-    console.log(`${tag} Page ${i + 1}/${pages.length} — sending to OpenAI...`)
-    const questions = await extractQuestionsFromPages(
-      [{ base64: pages[i].base64, mimeType: pages[i].mimeType }],
-      i + 1,
+  console.log(`${tag} Pass 1: Extracting questions from ${pages.length} page(s) (concurrency: ${EXTRACTION_CONCURRENCY})...`)
+
+  // Process pages in concurrent batches
+  const pageResults: Array<{ pageIndex: number; questions: ExtractedQuestion[] }> = []
+  for (let batchStart = 0; batchStart < pages.length; batchStart += EXTRACTION_CONCURRENCY) {
+    const batchEnd = Math.min(batchStart + EXTRACTION_CONCURRENCY, pages.length)
+    const batch = Array.from({ length: batchEnd - batchStart }, (_, j) => batchStart + j)
+    console.log(`${tag} Batch: pages ${batch.map(i => i + 1).join(', ')}`)
+
+    const batchResults = await Promise.all(
+      batch.map(async (i) => {
+        console.log(`${tag} Page ${i + 1}/${pages.length} — sending to OpenAI...`)
+        const questions = await extractQuestionsFromPages(
+          [{ base64: pages[i].base64, mimeType: pages[i].mimeType }],
+          i + 1,
+        )
+        console.log(`${tag} Page ${i + 1}: found ${questions.length} questions`)
+        return { pageIndex: i, questions }
+      })
     )
+    pageResults.push(...batchResults)
+  }
+
+  // Flatten results in page order
+  pageResults.sort((a, b) => a.pageIndex - b.pageIndex)
+  for (const { pageIndex, questions } of pageResults) {
     for (const q of questions) {
       allQuestions.push(q)
-      questionPageMap.push(i)
+      questionPageMap.push(pageIndex)
     }
-    console.log(`${tag} Page ${i + 1}: found ${questions.length} questions (${allQuestions.length} cumulative)`)
   }
 
   const pass1Elapsed = ((Date.now() - extractionStart) / 1000).toFixed(1)
@@ -343,27 +364,39 @@ async function extractAndStoreQuestions(
   console.log(`${tag} Pass 2: ${reextractCandidates.length} R/W question(s) need passage context re-extraction`)
 
   const pass2Start = Date.now()
+
+  // Collect candidates for re-extraction
+  const pass2Tasks: Array<{ idx: number; q: ExtractedQuestion; pageIdx: number }> = []
   for (let idx = 0; idx < allQuestions.length; idx++) {
     const q = allQuestions[idx]
     const pageIdx = questionPageMap[idx]
     if (q.section === 'reading_writing' && (q.questionText || '').length < 120 && pageIdx > 0) {
-      console.log(`${tag} Re-extracting Q${q.questionNumber} (${(q.questionText || '').length} chars) with page pair ${pageIdx}+${pageIdx + 1}...`)
-      const paired = await extractQuestionsFromPages(
-        [
-          { base64: pages[pageIdx - 1].base64, mimeType: pages[pageIdx - 1].mimeType },
-          { base64: pages[pageIdx].base64, mimeType: pages[pageIdx].mimeType },
-        ],
-        pageIdx,
-      )
-      // Find the matching question by number and replace if it has longer text
-      const match = paired.find((p) => p.questionNumber === q.questionNumber)
-      if (match && (match.questionText || '').length > (q.questionText || '').length) {
-        allQuestions[idx] = match
-        console.log(`${tag}   Q${q.questionNumber} replaced: ${(q.questionText || '').length} → ${match.questionText.length} chars`)
-      } else {
-        console.log(`${tag}   Q${q.questionNumber} kept original (no improvement)`)
-      }
+      pass2Tasks.push({ idx, q, pageIdx })
     }
+  }
+
+  // Process re-extractions in concurrent batches
+  for (let batchStart = 0; batchStart < pass2Tasks.length; batchStart += EXTRACTION_CONCURRENCY) {
+    const batch = pass2Tasks.slice(batchStart, batchStart + EXTRACTION_CONCURRENCY)
+    await Promise.all(
+      batch.map(async ({ idx, q, pageIdx }) => {
+        console.log(`${tag} Re-extracting Q${q.questionNumber} (${(q.questionText || '').length} chars) with page pair ${pageIdx}+${pageIdx + 1}...`)
+        const paired = await extractQuestionsFromPages(
+          [
+            { base64: pages[pageIdx - 1].base64, mimeType: pages[pageIdx - 1].mimeType },
+            { base64: pages[pageIdx].base64, mimeType: pages[pageIdx].mimeType },
+          ],
+          pageIdx,
+        )
+        const match = paired.find((p) => p.questionNumber === q.questionNumber)
+        if (match && (match.questionText || '').length > (q.questionText || '').length) {
+          allQuestions[idx] = match
+          console.log(`${tag}   Q${q.questionNumber} replaced: ${(q.questionText || '').length} → ${match.questionText.length} chars`)
+        } else {
+          console.log(`${tag}   Q${q.questionNumber} kept original (no improvement)`)
+        }
+      })
+    )
   }
 
   const pass2Elapsed = ((Date.now() - pass2Start) / 1000).toFixed(1)
