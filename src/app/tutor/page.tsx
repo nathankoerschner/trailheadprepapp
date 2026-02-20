@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { DeleteSessionButton } from '@/components/session/delete-session-button'
 import type { Session } from '@/lib/types/database'
 
 const statusColors: Record<string, 'default' | 'secondary' | 'success' | 'warning' | 'destructive'> = {
@@ -63,7 +64,10 @@ export default async function TutorDashboard() {
                 <CardContent>
                   <div className="flex items-center justify-between text-sm text-slate-500">
                     <span>PIN: {session.pin_code}</span>
-                    <span>{new Date(session.created_at).toLocaleDateString()}</span>
+                    <div className="flex items-center gap-2">
+                      <span>{new Date(session.created_at).toLocaleDateString()}</span>
+                      <DeleteSessionButton sessionId={session.id} />
+                    </div>
                   </div>
                 </CardContent>
               </Card>

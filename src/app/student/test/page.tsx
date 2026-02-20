@@ -9,6 +9,7 @@ import { useTimer } from '@/lib/hooks/use-timer'
 import { studentFetch } from '@/lib/utils/student-api'
 import { formatTime } from '@/lib/utils/timer'
 import { toast } from 'sonner'
+import { getStudentStorageItem } from '@/lib/utils/student-storage'
 import type { AnswerChoice } from '@/lib/types/database'
 
 
@@ -43,7 +44,7 @@ export default function StudentTestPage() {
   }, [])
 
   async function loadTestData() {
-    const sessionId = localStorage.getItem('session_id')
+    const sessionId = getStudentStorageItem('session_id')
     if (!sessionId) {
       router.push('/student/join')
       return

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Loader2, Users } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { usePolling } from '@/lib/hooks/use-polling'
+import { clearStudentStorage, getStudentStorageItem } from '@/lib/utils/student-storage'
 
 export default function StudentLobbyPage() {
   const router = useRouter()
@@ -12,7 +13,7 @@ export default function StudentLobbyPage() {
   const [students, setStudents] = useState<Array<{ student_id: string; students: { name: string } }>>([])
 
   useEffect(() => {
-    const name = localStorage.getItem('student_name')
+    const name = getStudentStorageItem('student_name')
     if (!name) {
       router.push('/student/join')
       return
@@ -21,7 +22,7 @@ export default function StudentLobbyPage() {
   }, [router])
 
   const checkStatus = useCallback(async () => {
-    const sessionId = localStorage.getItem('session_id')
+    const sessionId = getStudentStorageItem('session_id')
     if (!sessionId) return
 
     const res = await fetch(`/api/sessions/${sessionId}/status`)
@@ -39,13 +40,14 @@ export default function StudentLobbyPage() {
         router.push('/student/waiting')
         break
       case 'lesson':
-        router.push('/student/practice')
+        router.push('/student/waiting')
         break
       case 'retest':
         router.push('/student/retest')
         break
       case 'complete':
-        router.push('/student/report')
+        clearStudentStorage()
+        router.push('/student/join')
         break
     }
   }, [router])

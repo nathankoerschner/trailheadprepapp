@@ -47,3 +47,37 @@ export async function GET(
 
   return NextResponse.json({ ...session, session_students: students })
 }
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ sessionId: string }> }
+) {
+  const { sessionId } = await params
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Verify the session belongs to this user
+  const { data: session } = await supabase
+    .from('sessions')
+    .select('id, created_by')
+    .eq('id', sessionId)
+    .single()
+
+  if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+  if (session.created_by !== user.id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Delete cascade: child rows first, then session
+  await supabase.from('retest_answers').delete().eq('session_id', sessionId)
+  await supabase.from('retest_questions').delete().eq('session_id', sessionId)
+  await supabase.from('student_answers').delete().eq('session_id', sessionId)
+  await supabase.from('session_students').delete().eq('session_id', sessionId)
+  await supabase.from('analysis_jobs').delete().eq('session_id', sessionId)
+
+  const { error } = await supabase.from('sessions').delete().eq('id', sessionId)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  return NextResponse.json({ success: true })
+}

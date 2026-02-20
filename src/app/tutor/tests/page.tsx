@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { Upload, FileText, Loader2 } from 'lucide-react'
+import { Upload, FileText, Loader2, Trash2 } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -43,6 +43,8 @@ export default function TestsPage() {
   const [testName, setTestName] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadStatus, setUploadStatus] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Test | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -239,6 +241,25 @@ export default function TestsPage() {
     return files
   }
 
+  async function handleDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/tests/${deleteTarget.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        toast.error('Failed to delete test')
+        return
+      }
+      toast.success('Test deleted')
+      setDeleteTarget(null)
+      loadTests()
+    } catch {
+      toast.error('Failed to delete test')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -312,8 +333,8 @@ export default function TestsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {tests.map((test) => (
-            <Link key={test.id} href={test.status === 'ready' ? `/tutor/tests/${test.id}/review` : '#'}>
-              <Card className="transition-shadow hover:shadow-md">
+            <Card key={test.id} className="transition-shadow hover:shadow-md">
+              <Link href={test.status === 'ready' ? `/tutor/tests/${test.id}/review` : '#'}>
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">{test.name}</CardTitle>
@@ -330,11 +351,53 @@ export default function TestsPage() {
                     {test.total_questions} questions
                   </p>
                 </CardContent>
-              </Card>
-            </Link>
+              </Link>
+              <CardContent className="pt-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-slate-400 hover:text-red-600"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    setDeleteTarget(test)
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </Button>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Test</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">
+            Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This will also
+            delete all associated questions, sessions, and student answers. This action cannot be
+            undone.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

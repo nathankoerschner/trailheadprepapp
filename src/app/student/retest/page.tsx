@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { QuestionDisplay } from '@/components/question/question-display'
 import { useTimer } from '@/lib/hooks/use-timer'
 import { studentFetch } from '@/lib/utils/student-api'
+import { clearStudentStorage } from '@/lib/utils/student-storage'
 import { formatTime } from '@/lib/utils/timer'
 import { toast } from 'sonner'
 import type { AnswerChoice } from '@/lib/types/database'
@@ -73,7 +74,7 @@ export default function StudentRetestPage() {
 
     await studentFetch('/api/retest/submit', { method: 'POST' })
     toast.success('Retest submitted!')
-    router.push('/student/report')
+    router.push('/student/review')
   }, [submitted, router])
 
   const { remaining } = useTimer(startedAt, durationMinutes, handleSubmit)
@@ -92,8 +93,11 @@ export default function StudentRetestPage() {
     return (
       <div className="text-center py-12">
         <p className="text-slate-500">No retest questions found.</p>
-        <Button onClick={() => router.push('/student/report')} className="mt-4">
-          View Report
+        <Button onClick={() => {
+          clearStudentStorage()
+          router.push('/student/join')
+        }} className="mt-4">
+          Done
         </Button>
       </div>
     )

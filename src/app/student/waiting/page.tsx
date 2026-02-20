@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { usePolling } from '@/lib/hooks/use-polling'
+import { clearStudentStorage, getStudentStorageItem } from '@/lib/utils/student-storage'
 
 export default function StudentWaitingPage() {
   const router = useRouter()
 
   const checkStatus = useCallback(async () => {
-    const sessionId = localStorage.getItem('session_id')
+    const sessionId = getStudentStorageItem('session_id')
     if (!sessionId) return
 
     const res = await fetch(`/api/sessions/${sessionId}/status`)
@@ -18,14 +19,12 @@ export default function StudentWaitingPage() {
     const data = await res.json()
 
     switch (data.status) {
-      case 'lesson':
-        router.push('/student/practice')
-        break
       case 'retest':
         router.push('/student/retest')
         break
       case 'complete':
-        router.push('/student/report')
+        clearStudentStorage()
+        router.push('/student/join')
         break
     }
   }, [router])
@@ -39,7 +38,7 @@ export default function StudentWaitingPage() {
           <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-slate-400" />
           <h2 className="text-lg font-semibold">Great job!</h2>
           <p className="mt-2 text-sm text-slate-500">
-            Your tutor is analyzing results. Sit tight while the AI works its magic...
+            Your tutor is preparing the next phase. Please wait here.
           </p>
         </CardContent>
       </Card>

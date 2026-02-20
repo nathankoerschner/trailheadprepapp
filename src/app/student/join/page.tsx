@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { toast } from 'sonner'
 import type { Student } from '@/lib/types/database'
+import { getStudentStorageItem, setStudentStorageItem } from '@/lib/utils/student-storage'
 
 export default function StudentJoinPage() {
   const router = useRouter()
@@ -19,8 +20,8 @@ export default function StudentJoinPage() {
 
   // Check if already in session
   useEffect(() => {
-    const token = localStorage.getItem('student_token')
-    const storedSessionId = localStorage.getItem('session_id')
+    const token = getStudentStorageItem('student_token')
+    const storedSessionId = getStudentStorageItem('session_id')
     if (token && storedSessionId) {
       router.push('/student/lobby')
     }
@@ -70,10 +71,10 @@ export default function StudentJoinPage() {
     }
 
     const data = await res.json()
-    localStorage.setItem('student_token', data.token)
-    localStorage.setItem('session_id', data.sessionId)
-    localStorage.setItem('student_id', data.studentId)
-    localStorage.setItem('student_name', data.studentName)
+    setStudentStorageItem('student_token', data.token)
+    setStudentStorageItem('session_id', data.sessionId)
+    setStudentStorageItem('student_id', data.studentId)
+    setStudentStorageItem('student_name', data.studentName)
 
     router.push('/student/lobby')
   }

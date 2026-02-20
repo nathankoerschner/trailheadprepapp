@@ -79,7 +79,18 @@ export default function StudentsPage() {
   async function getOrgId(): Promise<string | null> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return null
-    return resolveOrgIdFromUser(user)
+
+    // First try user metadata
+    const fromMeta = resolveOrgIdFromUser(user)
+    if (fromMeta) return fromMeta
+
+    // Fall back to tutors table
+    const { data } = await supabase
+      .from('tutors')
+      .select('org_id')
+      .eq('id', user.id)
+      .single()
+    return data?.org_id ?? null
   }
 
   return (
