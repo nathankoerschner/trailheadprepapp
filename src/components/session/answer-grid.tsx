@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useMemo, useState } from 'react'
-import { Sparkles } from 'lucide-react'
+import { Sparkles, EyeOff, Eye } from 'lucide-react'
 import type { GridQuestion, GridAnswer } from '@/lib/types/database'
 
 interface AnswerGridProps {
@@ -19,6 +19,7 @@ interface AnswerGridProps {
 
 export function AnswerGrid({ questions, students, studentAnswers, onQuestionClick, onCounterpartClick, counterpartLoadingId }: AnswerGridProps) {
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(() => new Set(students.map((s) => s.student_id)))
+  const [hideAnswers, setHideAnswers] = useState(false)
 
   const filteredStudents = useMemo(
     () => students.filter((s) => selectedStudentIds.has(s.student_id)),
@@ -93,7 +94,7 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
             <th className="sticky left-0 z-10 bg-slate-50 border-b border-r border-slate-200 px-3 py-2 text-left text-xs font-medium text-slate-500">
               Q#
             </th>
-            {filteredStudents.map((s) => (
+            {!hideAnswers && filteredStudents.map((s) => (
               <th
                 key={s.student_id}
                 className="border-b border-slate-200 px-2 py-2 text-center text-xs font-medium text-slate-500 whitespace-nowrap"
@@ -127,7 +128,7 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
                   )}
                 </div>
               </td>
-              {filteredStudents.map((s) => {
+              {!hideAnswers && filteredStudents.map((s) => {
                 const answer = answerMap.get(`${s.student_id}:${q.id}`)
                 return (
                   <td
@@ -143,6 +144,16 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
         </tbody>
       </table>
     </div>
+      <div className="flex justify-end mt-1">
+        <button
+          onClick={() => setHideAnswers((h) => !h)}
+          className="flex items-center gap-1 rounded-full px-2 py-1 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 shadow-sm transition-colors"
+          title={hideAnswers ? 'Show answers' : 'Hide answers'}
+        >
+          {hideAnswers ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+          {hideAnswers ? 'Show answers' : 'Hide answers'}
+        </button>
+      </div>
     </div>
   )
 }
