@@ -20,6 +20,21 @@ const statusBadge: Record<string, 'secondary' | 'success' | 'destructive'> = {
   error: 'destructive',
 }
 
+interface PrepareUploadResponse {
+  testId: string
+  uploads: Array<{
+    pageNumber: number
+    path: string
+    token: string
+    mimeType: string
+  }>
+  originalPdfUpload?: {
+    path: string
+    token: string
+    mimeType: string
+  }
+}
+
 export default function TestsPage() {
   const [tests, setTests] = useState<Test[]>([])
   const [loading, setLoading] = useState(true)
@@ -68,25 +83,68 @@ export default function TestsPage() {
     setUploading(true)
     setUploadStatus('')
 
-    try {
-      const formData = new FormData()
-      formData.append('name', testName.trim())
+    let preparedTestId: string | null = null
 
-      if (selectedFile.type === 'application/pdf') {
-        setUploadStatus('Converting PDF pages to PNG...')
-        const pageImages = await convertPdfToPngFiles(selectedFile)
-        for (const pageImage of pageImages) {
-          formData.append('pages', pageImage)
-        }
-        formData.append('originalPdf', selectedFile)
-      } else {
-        formData.append('pages', selectedFile)
+    try {
+      const pageImages = selectedFile.type === 'application/pdf'
+        ? await convertPdfToPngFiles(selectedFile)
+        : [selectedFile]
+
+      setUploadStatus('Preparing secure uploads...')
+      const prepareRes = await fetch('/api/tests/upload/prepare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: testName.trim(),
+          pages: pageImages.map((page) => ({
+            name: page.name,
+            mimeType: page.type,
+          })),
+          originalPdf: selectedFile.type === 'application/pdf'
+            ? { name: selectedFile.name, mimeType: selectedFile.type }
+            : null,
+        }),
+      })
+
+      if (!prepareRes.ok) {
+        toast.error('Upload failed')
+        return
       }
 
-      setUploadStatus('Uploading page images...')
+      const prepared = (await prepareRes.json()) as PrepareUploadResponse
+      preparedTestId = prepared.testId
+
+      if (prepared.uploads.length !== pageImages.length) {
+        throw new Error('Upload target count mismatch')
+      }
+
+      if (selectedFile.type === 'application/pdf' && prepared.originalPdfUpload) {
+        setUploadStatus('Uploading original PDF...')
+        const { error } = await supabase.storage
+          .from('test-images')
+          .uploadToSignedUrl(
+            prepared.originalPdfUpload.path,
+            prepared.originalPdfUpload.token,
+            selectedFile
+          )
+        if (error) throw error
+      }
+
+      await uploadPagesInChunks(pageImages, prepared.uploads)
+
+      setUploadStatus('Starting extraction...')
       const res = await fetch('/api/tests/upload', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          testId: prepared.testId,
+          pages: prepared.uploads.map((upload) => ({
+            pageNumber: upload.pageNumber,
+            path: upload.path,
+            mimeType: upload.mimeType,
+          })),
+          originalPdfPath: prepared.originalPdfUpload?.path || null,
+        }),
       })
 
       if (!res.ok) {
@@ -101,6 +159,12 @@ export default function TestsPage() {
       loadTests()
     } catch (error) {
       console.error(error)
+      if (preparedTestId) {
+        await supabase
+          .from('tests')
+          .update({ status: 'error' })
+          .eq('id', preparedTestId)
+      }
       toast.error('Upload failed')
     } finally {
       setUploading(false)
@@ -108,7 +172,33 @@ export default function TestsPage() {
     }
   }
 
+  async function uploadPagesInChunks(
+    pageImages: File[],
+    uploads: PrepareUploadResponse['uploads'],
+  ): Promise<void> {
+    const concurrency = 3
+
+    for (let i = 0; i < uploads.length; i += concurrency) {
+      const chunk = uploads.slice(i, i + concurrency)
+      setUploadStatus(`Uploading page images (${Math.min(i + chunk.length, uploads.length)}/${uploads.length})...`)
+
+      await Promise.all(
+        chunk.map(async (upload) => {
+          const pageFile = pageImages[upload.pageNumber - 1]
+          if (!pageFile) {
+            throw new Error(`Missing page file for page ${upload.pageNumber}`)
+          }
+          const { error } = await supabase.storage
+            .from('test-images')
+            .uploadToSignedUrl(upload.path, upload.token, pageFile)
+          if (error) throw error
+        }),
+      )
+    }
+  }
+
   async function convertPdfToPngFiles(file: File): Promise<File[]> {
+    setUploadStatus('Converting PDF pages to PNG...')
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
     pdfjs.GlobalWorkerOptions.workerSrc = new URL(
       'pdfjs-dist/legacy/build/pdf.worker.min.mjs',

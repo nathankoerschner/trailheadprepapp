@@ -3,6 +3,18 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { extractQuestionsFromPages, type ExtractedQuestion } from '@/lib/openai/extract-questions'
 
+interface JsonPageReference {
+  path?: string
+  mimeType?: string
+  pageNumber?: number
+}
+
+interface JsonUploadPayload {
+  testId?: string
+  pages?: JsonPageReference[]
+  originalPdfPath?: string | null
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -15,6 +27,65 @@ export async function POST(request: Request) {
     .single()
 
   if (!tutor) return NextResponse.json({ error: 'Tutor not found' }, { status: 404 })
+
+  const admin = createAdminClient()
+  const contentType = request.headers.get('content-type') || ''
+
+  if (contentType.includes('application/json')) {
+    let body: JsonUploadPayload
+    try {
+      body = (await request.json()) as JsonUploadPayload
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 })
+    }
+    const testId = body.testId
+    const pageRefs = Array.isArray(body.pages) ? body.pages : []
+    const originalPdfPath = typeof body.originalPdfPath === 'string' ? body.originalPdfPath : null
+
+    if (!testId) {
+      return NextResponse.json({ error: 'testId is required' }, { status: 400 })
+    }
+
+    const normalizedRefs = pageRefs
+      .map((page, idx) => ({
+        path: page.path || '',
+        mimeType: page.mimeType || inferMimeTypeFromPath(page.path || ''),
+        pageNumber: typeof page.pageNumber === 'number' ? page.pageNumber : idx + 1,
+      }))
+      .filter((page) => page.path.length > 0)
+      .sort((a, b) => a.pageNumber - b.pageNumber)
+
+    if (normalizedRefs.length === 0) {
+      return NextResponse.json({ error: 'At least one page image is required' }, { status: 400 })
+    }
+    if (normalizedRefs.some((page) => !page.mimeType.startsWith('image/'))) {
+      return NextResponse.json({ error: 'All page files must be images' }, { status: 400 })
+    }
+
+    const expectedPrefix = `${tutor.org_id}/${testId}/`
+    const hasInvalidPath = normalizedRefs.some((page) => !page.path.startsWith(expectedPrefix))
+    if (hasInvalidPath || (originalPdfPath && !originalPdfPath.startsWith(expectedPrefix))) {
+      return NextResponse.json({ error: 'Invalid storage path' }, { status: 400 })
+    }
+
+    const { data: test } = await supabase
+      .from('tests')
+      .select('id')
+      .eq('id', testId)
+      .eq('org_id', tutor.org_id)
+      .single()
+
+    if (!test) {
+      return NextResponse.json({ error: 'Test not found' }, { status: 404 })
+    }
+
+    processStoredUpload(normalizedRefs, originalPdfPath, test.id, tutor.org_id, admin).catch(async (err) => {
+      console.error('Test processing failed:', err)
+      await admin.from('tests').update({ status: 'error' }).eq('id', test.id)
+    })
+
+    return NextResponse.json({ testId: test.id, status: 'processing' })
+  }
 
   const formData = await request.formData()
   const pages = formData.getAll('pages').filter((value): value is File => value instanceof File)
@@ -37,8 +108,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'At least one page image is required' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
-
   // Create test record
   const { data: test, error: testError } = await supabase
     .from('tests')
@@ -55,8 +124,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to create test' }, { status: 500 })
   }
 
-  // Process in background — upload images, then extract
-  processTestUpload(normalizedPages, pdfFile, test.id, tutor.org_id, admin).catch(async (err) => {
+  // Legacy multipart fallback
+  processMultipartUpload(normalizedPages, pdfFile, test.id, tutor.org_id, admin).catch(async (err) => {
     console.error('Test processing failed:', err)
     await admin.from('tests').update({ status: 'error' }).eq('id', test.id)
   })
@@ -70,7 +139,51 @@ interface PageData {
   storageUrl: string
 }
 
-async function processTestUpload(
+function inferMimeTypeFromPath(path: string): string {
+  const extension = path.toLowerCase().split('.').pop()
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg'
+  if (extension === 'webp') return 'image/webp'
+  return 'image/png'
+}
+
+async function processStoredUpload(
+  pageRefs: Array<{ path: string; mimeType: string; pageNumber: number }>,
+  originalPdfPath: string | null,
+  testId: string,
+  orgId: string,
+  admin: ReturnType<typeof createAdminClient>
+) {
+  const expectedPrefix = `${orgId}/${testId}/`
+  if (originalPdfPath && !originalPdfPath.startsWith(expectedPrefix)) {
+    throw new Error('Invalid original PDF storage path')
+  }
+
+  const pages: PageData[] = []
+
+  for (const pageRef of pageRefs) {
+    if (!pageRef.path.startsWith(expectedPrefix)) {
+      throw new Error(`Invalid page storage path: ${pageRef.path}`)
+    }
+
+    const { data, error } = await admin.storage.from('test-images').download(pageRef.path)
+    if (error || !data) {
+      throw new Error(`Failed to download page image: ${pageRef.path}`)
+    }
+
+    const pageBuffer = Buffer.from(await data.arrayBuffer())
+    const { data: pageUrl } = admin.storage.from('test-images').getPublicUrl(pageRef.path)
+
+    pages.push({
+      base64: pageBuffer.toString('base64'),
+      mimeType: pageRef.mimeType || inferMimeTypeFromPath(pageRef.path),
+      storageUrl: pageUrl.publicUrl,
+    })
+  }
+
+  await extractAndStoreQuestions(pages, testId, admin)
+}
+
+async function processMultipartUpload(
   pageFiles: File[],
   originalPdf: File | null,
   testId: string,
@@ -112,6 +225,14 @@ async function processTestUpload(
     })
   }
 
+  await extractAndStoreQuestions(pages, testId, admin)
+}
+
+async function extractAndStoreQuestions(
+  pages: PageData[],
+  testId: string,
+  admin: ReturnType<typeof createAdminClient>
+) {
   // Pass 1: Extract questions page-by-page to maximize coverage
   const allQuestions: ExtractedQuestion[] = []
   // Track which page each question came from
