@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     .eq('id', student.sessionId)
     .single()
 
-  if (!session || !['testing', 'retest'].includes(session.status)) {
+  if (!session || !['testing', 'paused', 'retest'].includes(session.status)) {
     return NextResponse.json({ error: 'Test not active' }, { status: 400 })
   }
 

@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     .eq('id', student.sessionId)
     .single()
 
-  if (!session || session.status !== 'testing') {
+  if (!session || (session.status !== 'testing' && session.status !== 'paused')) {
     return NextResponse.json({ error: 'Test not active' }, { status: 400 })
   }
 

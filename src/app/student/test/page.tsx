@@ -1,16 +1,21 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Clock, ChevronLeft, ChevronRight, Send } from 'lucide-react'
+import { Clock, ChevronLeft, ChevronRight, Send, Pause } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { QuestionDisplay } from '@/components/question/question-display'
 import { useTimer } from '@/lib/hooks/use-timer'
 import { studentFetch } from '@/lib/utils/student-api'
 import { formatTime } from '@/lib/utils/timer'
 import { toast } from 'sonner'
-import { getStudentStorageItem } from '@/lib/utils/student-storage'
+import { clearStudentStorage, getStudentStorageItem } from '@/lib/utils/student-storage'
 import type { AnswerChoice } from '@/lib/types/database'
+
+function logStudentRedirect(reason: string, details: Record<string, unknown>) {
+  // Lightweight client diagnostics to identify why a student was ejected.
+  console.warn('[student:test] Redirecting to /student/join', { reason, ...details })
+}
 
 
 interface TestQuestion {
@@ -38,51 +43,157 @@ export default function StudentTestPage() {
   const [loading, setLoading] = useState(true)
   const [testStartedAt, setTestStartedAt] = useState<string | null>(null)
   const [durationMinutes, setDurationMinutes] = useState(180)
+  const [paused, setPaused] = useState(false)
+  const [pausedAt, setPausedAt] = useState<string | null>(null)
+  const [totalPausedMs, setTotalPausedMs] = useState(0)
+  const status404CountRef = useRef(0)
 
-  useEffect(() => {
-    loadTestData()
-  }, [])
+  const handleStatus404 = useCallback(
+    (sessionId: string) => {
+      status404CountRef.current += 1
+      if (status404CountRef.current >= 3) {
+        logStudentRedirect('status-404-threshold', {
+          sessionId,
+          misses: status404CountRef.current,
+        })
+        clearStudentStorage()
+        router.push('/student/join')
+      }
+    },
+    [router]
+  )
 
-  async function loadTestData() {
+  const loadTestData = useCallback(async () => {
     const sessionId = getStudentStorageItem('session_id')
-    if (!sessionId) {
+    const token = getStudentStorageItem('student_token')
+    if (!sessionId || !token) {
+      logStudentRedirect('missing-session-auth', {
+        hasSessionId: Boolean(sessionId),
+        hasToken: Boolean(token),
+        hasStudentName: Boolean(getStudentStorageItem('student_name')),
+      })
+      clearStudentStorage()
       router.push('/student/join')
       return
     }
 
-    // Get session info for timer
-    const statusRes = await fetch(`/api/sessions/${sessionId}/status`)
-    if (statusRes.ok) {
+    try {
+      // Get session info for timer
+      const statusRes = await fetch(`/api/sessions/${sessionId}/status`, { cache: 'no-store' })
+      if (!statusRes.ok) {
+        if (statusRes.status === 404) {
+          handleStatus404(sessionId)
+          return
+        }
+        toast.error('Failed to verify session status')
+        setLoading(false)
+        return
+      }
+
       const status = await statusRes.json()
+      status404CountRef.current = 0
       setTestStartedAt(status.testStartedAt)
       setDurationMinutes(status.testDurationMinutes)
+      setPaused(status.status === 'paused')
+      setPausedAt(status.pausedAt || null)
+      setTotalPausedMs(status.totalPausedMs || 0)
 
-      if (status.status !== 'testing') {
+      if (status.status === 'lobby') {
         router.push('/student/lobby')
         return
       }
-    }
 
-    // Get questions
-    const res = await studentFetch('/api/test/questions')
-    if (!res.ok) {
-      toast.error('Failed to load test')
-      return
-    }
-
-    const data: TestQuestion[] = await res.json()
-    setQuestions(data)
-
-    // Restore saved answers
-    const savedAnswers = new Map<string, AnswerChoice>()
-    data.forEach((q) => {
-      if (q.selectedAnswer) {
-        savedAnswers.set(q.id, q.selectedAnswer)
+      if (status.status === 'analyzing' || status.status === 'lesson') {
+        router.push('/student/waiting')
+        return
       }
-    })
-    setAnswers(savedAnswers)
-    setLoading(false)
-  }
+
+      if (status.status === 'retest') {
+        router.push('/student/retest')
+        return
+      }
+
+      if (status.status === 'complete') {
+        clearStudentStorage()
+        router.push('/student/join')
+        return
+      }
+
+      if (status.status !== 'testing' && status.status !== 'paused') {
+        toast.error('Unexpected session status')
+        router.push('/student/lobby')
+        return
+      }
+
+      // Get questions
+      const res = await studentFetch('/api/test/questions', { cache: 'no-store' })
+      if (!res.ok) {
+        toast.error('Failed to load test')
+        setLoading(false)
+        return
+      }
+
+      const data: TestQuestion[] = await res.json()
+      setQuestions(data)
+
+      // Restore saved answers
+      const savedAnswers = new Map<string, AnswerChoice>()
+      data.forEach((q) => {
+        if (q.selectedAnswer) {
+          savedAnswers.set(q.id, q.selectedAnswer)
+        }
+      })
+      setAnswers(savedAnswers)
+      setLoading(false)
+    } catch {
+      toast.error('Failed to load test')
+      setLoading(false)
+    }
+  }, [router, handleStatus404])
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      loadTestData()
+    }, 0)
+    return () => clearTimeout(timeout)
+  }, [loadTestData])
+
+  // Poll session status to detect pause/resume
+  useEffect(() => {
+    if (loading) return
+    const sessionId = getStudentStorageItem('session_id')
+    if (!sessionId) return
+
+    const interval = setInterval(async () => {
+      const res = await fetch(`/api/sessions/${sessionId}/status`, { cache: 'no-store' })
+      if (!res.ok) {
+        if (res.status === 404) {
+          handleStatus404(sessionId)
+        }
+        return
+      }
+
+      status404CountRef.current = 0
+      const data = await res.json()
+      const isPaused = data.status === 'paused'
+      setPaused(isPaused)
+      setPausedAt(data.pausedAt || null)
+      setTotalPausedMs(data.totalPausedMs || 0)
+
+      if (data.status === 'lobby') {
+        router.push('/student/lobby')
+      } else if (data.status === 'retest') {
+        router.push('/student/retest')
+      } else if (data.status === 'complete') {
+        clearStudentStorage()
+        router.push('/student/join')
+      } else if (data.status !== 'testing' && data.status !== 'paused') {
+        router.push('/student/waiting')
+      }
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [loading, router, handleStatus404])
 
   const handleSubmit = useCallback(async () => {
     if (submitted) return
@@ -98,9 +209,10 @@ export default function StudentTestPage() {
     }
   }, [submitted, router])
 
-  const { remaining, expired } = useTimer(testStartedAt, durationMinutes, handleSubmit)
+  const { remaining } = useTimer(testStartedAt, durationMinutes, handleSubmit, totalPausedMs, pausedAt)
 
   async function selectAnswer(questionId: string, answer: AnswerChoice) {
+    if (paused) return
     setAnswers((prev) => new Map(prev).set(questionId, answer))
 
     // Auto-save
@@ -117,7 +229,18 @@ export default function StudentTestPage() {
   const answeredCount = answers.size
 
   return (
-    <div className="pb-20">
+    <div className="pb-20 relative">
+      {/* Pause overlay */}
+      {paused && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/95 backdrop-blur-sm">
+          <div className="text-center">
+            <Pause className="mx-auto h-16 w-16 text-slate-400" />
+            <h2 className="mt-4 text-2xl font-bold text-slate-900">Test Paused</h2>
+            <p className="mt-2 text-slate-500">Your tutor has paused the test. Please wait.</p>
+          </div>
+        </div>
+      )}
+
       {/* Timer bar */}
       <div className="sticky top-0 z-10 -mx-4 border-b bg-white px-4 py-2">
         <div className="flex items-center justify-between">

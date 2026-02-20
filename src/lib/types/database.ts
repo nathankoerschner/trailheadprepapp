@@ -1,4 +1,4 @@
-export type SessionStatus = 'lobby' | 'testing' | 'analyzing' | 'lesson' | 'retest' | 'complete'
+export type SessionStatus = 'lobby' | 'testing' | 'paused' | 'analyzing' | 'lesson' | 'retest' | 'complete'
 export type QuestionSection = 'reading_writing' | 'math'
 export type AnswerChoice = 'A' | 'B' | 'C' | 'D'
 export type RetestSource = 'missed' | 'padding'
@@ -67,6 +67,8 @@ export interface Session {
   retest_question_count: number
   test_duration_minutes: number
   test_started_at: string | null
+  paused_at: string | null
+  total_paused_ms: number
   created_at: string
 }
 

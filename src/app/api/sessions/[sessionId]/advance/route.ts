@@ -22,8 +22,10 @@ export async function POST(
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
-  const currentIdx = PHASE_ORDER.indexOf(session.status)
-  const nextStatus = session.status === 'analyzing' || session.status === 'lesson'
+  // Treat paused as testing for advancement purposes
+  const effectiveStatus = session.status === 'paused' ? 'testing' : session.status
+  const currentIdx = PHASE_ORDER.indexOf(effectiveStatus)
+  const nextStatus = effectiveStatus === 'analyzing' || effectiveStatus === 'lesson'
     ? 'retest'
     : currentIdx === -1 || currentIdx >= PHASE_ORDER.length - 1
       ? null

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
-import { Users, ArrowRight, Clock, Loader2 } from 'lucide-react'
+import { Users, ArrowRight, Clock, Loader2, Pause, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +32,7 @@ interface SessionData {
 const phaseLabels: Record<SessionStatus, string> = {
   lobby: 'Lobby',
   testing: 'Practice Test',
+  paused: 'Paused',
   analyzing: 'Transition',
   lesson: 'Transition',
   retest: 'Retest',
@@ -47,6 +48,7 @@ const stepperPhases: Array<{ key: SessionStatus; label: string }> = [
 const nextPhaseAction: Partial<Record<SessionStatus, string>> = {
   lobby: 'Start Test',
   testing: 'Start Retest',
+  paused: 'Start Retest',
   analyzing: 'Start Retest',
   lesson: 'Start Retest',
   retest: 'Complete Session',
@@ -56,6 +58,7 @@ export default function SessionControlPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const [session, setSession] = useState<SessionData | null>(null)
   const [advancing, setAdvancing] = useState(false)
+  const [toggling, setToggling] = useState(false)
   const [selectedQuestion, setSelectedQuestion] = useState<GridQuestion | null>(null)
   const [counterpartData, setCounterpartData] = useState<CounterpartQuestion | null>(null)
   const [counterpartLoadingId, setCounterpartLoadingId] = useState<string | null>(null)
@@ -82,6 +85,19 @@ export default function SessionControlPage() {
       toast.error('Failed to advance')
     }
     setAdvancing(false)
+  }
+
+  async function togglePause() {
+    setToggling(true)
+    const res = await fetch(`/api/sessions/${sessionId}/pause`, { method: 'POST' })
+    if (res.ok) {
+      const data = await res.json()
+      toast.success(data.status === 'paused' ? 'Test paused' : 'Test resumed')
+      loadSession()
+    } else {
+      toast.error('Failed to toggle pause')
+    }
+    setToggling(false)
   }
 
   async function handleCounterpartClick(question: GridQuestion) {
@@ -114,16 +130,35 @@ export default function SessionControlPage() {
             <Badge>{phaseLabels[session.status]}</Badge>
           </div>
         </div>
-        {nextPhaseAction[session.status] && (
-          <Button onClick={advancePhase} disabled={advancing} size="lg">
-            {advancing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ArrowRight className="h-4 w-4" />
-            )}
-            {nextPhaseAction[session.status]}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {(session.status === 'testing' || session.status === 'paused') && (
+            <Button
+              variant={session.status === 'paused' ? 'default' : 'outline'}
+              onClick={togglePause}
+              disabled={toggling}
+              size="lg"
+            >
+              {toggling ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : session.status === 'paused' ? (
+                <Play className="h-4 w-4" />
+              ) : (
+                <Pause className="h-4 w-4" />
+              )}
+              {session.status === 'paused' ? 'Resume Test' : 'Pause Test'}
+            </Button>
+          )}
+          {nextPhaseAction[session.status] && (
+            <Button onClick={advancePhase} disabled={advancing} size="lg">
+              {advancing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRight className="h-4 w-4" />
+              )}
+              {nextPhaseAction[session.status]}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Phase indicator */}
@@ -134,6 +169,8 @@ export default function SessionControlPage() {
           const effectiveStatus =
             session.status === 'analyzing' || session.status === 'lesson'
               ? 'retest'
+              : session.status === 'paused'
+              ? 'testing'
               : session.status === 'complete'
               ? 'complete'
               : session.status

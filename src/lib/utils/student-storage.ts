@@ -17,12 +17,12 @@ export function getStudentStorageItem(key: StudentStorageKey): string | null {
   const value = sessionStorage?.getItem(key) ?? null
   if (value) return value
 
-  // One-time compatibility path for in-progress sessions from older builds.
+  // Fallback path for sessions where sessionStorage is unavailable/reset.
   const legacy = getLegacyStorage()?.getItem(key) ?? null
   if (!legacy) return null
 
+  // Rehydrate sessionStorage when possible for fast subsequent reads.
   sessionStorage?.setItem(key, legacy)
-  getLegacyStorage()?.removeItem(key)
   return legacy
 }
 
@@ -30,8 +30,8 @@ export function setStudentStorageItem(key: StudentStorageKey, value: string) {
   const sessionStorage = getSessionStorage()
   sessionStorage?.setItem(key, value)
 
-  // Ensure old shared storage cannot override per-window session state.
-  getLegacyStorage()?.removeItem(key)
+  // Mirror into localStorage so session state survives sessionStorage loss.
+  getLegacyStorage()?.setItem(key, value)
 }
 
 export function clearStudentStorage() {

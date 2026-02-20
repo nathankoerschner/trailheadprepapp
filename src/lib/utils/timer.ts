@@ -1,10 +1,18 @@
 export function calculateRemainingTime(
   testStartedAt: string,
-  durationMinutes: number
+  durationMinutes: number,
+  totalPausedMs: number = 0,
+  pausedAt: string | null = null
 ): number {
   const startTime = new Date(testStartedAt).getTime()
   const endTime = startTime + durationMinutes * 60 * 1000
-  const remaining = Math.max(0, endTime - Date.now())
+  // Add total accumulated pause time
+  let pauseOffset = totalPausedMs
+  // If currently paused, also add the ongoing pause duration
+  if (pausedAt) {
+    pauseOffset += Date.now() - new Date(pausedAt).getTime()
+  }
+  const remaining = Math.max(0, endTime + pauseOffset - Date.now())
   return remaining
 }
 

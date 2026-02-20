@@ -14,8 +14,14 @@ export default function StudentWaitingPage() {
     const sessionId = getStudentStorageItem('session_id')
     if (!sessionId) return
 
-    const res = await fetch(`/api/sessions/${sessionId}/status`)
-    if (!res.ok) return
+    const res = await fetch(`/api/sessions/${sessionId}/status`, { cache: 'no-store' })
+    if (!res.ok) {
+      if (res.status === 404) {
+        clearStudentStorage()
+        router.push('/student/join')
+      }
+      return
+    }
     const data = await res.json()
 
     switch (data.status) {

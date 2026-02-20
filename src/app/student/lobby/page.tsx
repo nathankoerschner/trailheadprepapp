@@ -1,32 +1,70 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Users } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { usePolling } from '@/lib/hooks/use-polling'
 import { clearStudentStorage, getStudentStorageItem } from '@/lib/utils/student-storage'
 
+function logStudentRedirect(reason: string, details: Record<string, unknown>) {
+  // Lightweight client diagnostics to identify why a student was ejected.
+  console.warn('[student:lobby] Redirecting to /student/join', { reason, ...details })
+}
+
 export default function StudentLobbyPage() {
   const router = useRouter()
-  const [studentName, setStudentName] = useState('')
+  const [studentName] = useState(() => getStudentStorageItem('student_name') || 'Student')
   const [students, setStudents] = useState<Array<{ student_id: string; students: { name: string } }>>([])
+  const missingStatusCountRef = useRef(0)
 
   useEffect(() => {
-    const name = getStudentStorageItem('student_name')
-    if (!name) {
+    const sessionId = getStudentStorageItem('session_id')
+    const token = getStudentStorageItem('student_token')
+    if (!sessionId || !token) {
+      logStudentRedirect('missing-session-auth', {
+        hasSessionId: Boolean(sessionId),
+        hasToken: Boolean(token),
+        hasStudentName: Boolean(getStudentStorageItem('student_name')),
+      })
+      clearStudentStorage()
       router.push('/student/join')
       return
     }
-    setStudentName(name)
   }, [router])
 
   const checkStatus = useCallback(async () => {
     const sessionId = getStudentStorageItem('session_id')
-    if (!sessionId) return
+    const token = getStudentStorageItem('student_token')
 
-    const res = await fetch(`/api/sessions/${sessionId}/status`)
-    if (!res.ok) return
+    if (!sessionId || !token) {
+      logStudentRedirect('missing-session-auth-while-polling', {
+        hasSessionId: Boolean(sessionId),
+        hasToken: Boolean(token),
+        hasStudentName: Boolean(getStudentStorageItem('student_name')),
+      })
+      clearStudentStorage()
+      router.push('/student/join')
+      return
+    }
+
+    const res = await fetch(`/api/sessions/${sessionId}/status`, { cache: 'no-store' })
+    if (!res.ok) {
+      if (res.status === 404) {
+        missingStatusCountRef.current += 1
+        if (missingStatusCountRef.current >= 3) {
+          logStudentRedirect('status-404-threshold', {
+            sessionId,
+            misses: missingStatusCountRef.current,
+          })
+          clearStudentStorage()
+          router.push('/student/join')
+        }
+      }
+      return
+    }
+
+    missingStatusCountRef.current = 0
     const data = await res.json()
 
     setStudents(data.students || [])
@@ -34,6 +72,7 @@ export default function StudentLobbyPage() {
     // Redirect based on phase
     switch (data.status) {
       case 'testing':
+      case 'paused':
         router.push('/student/test')
         break
       case 'analyzing':

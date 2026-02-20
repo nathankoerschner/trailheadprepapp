@@ -1,6 +1,8 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 // Public endpoint — students poll this (no auth required, uses service role)
 export async function GET(
   _request: Request,
@@ -15,7 +17,11 @@ export async function GET(
     .eq('id', sessionId)
     .single()
 
-  if (error || !session) {
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   }
 
@@ -28,6 +34,8 @@ export async function GET(
     status: session.status,
     testStartedAt: session.test_started_at,
     testDurationMinutes: session.test_duration_minutes,
+    pausedAt: null,
+    totalPausedMs: 0,
     students: students || [],
   })
 }
