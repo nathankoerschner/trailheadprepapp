@@ -35,12 +35,10 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
 
   const correctRatioMap = useMemo(() => {
     const map = new Map<string, number>()
-    const submittedStudents = filteredStudents.filter((s) => s.test_submitted)
-    if (submittedStudents.length === 0) return map
     for (const q of questions) {
       let correct = 0
       let answered = 0
-      for (const s of submittedStudents) {
+      for (const s of filteredStudents) {
         const a = answerMap.get(`${s.student_id}:${q.id}`)
         if (a?.selected_answer) {
           answered++
@@ -129,7 +127,7 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
                   )}
                 </div>
               </td>
-              {students.map((s) => {
+              {filteredStudents.map((s) => {
                 const answer = answerMap.get(`${s.student_id}:${q.id}`)
                 return (
                   <td
@@ -144,6 +142,7 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
           ))}
         </tbody>
       </table>
+    </div>
     </div>
   )
 }
