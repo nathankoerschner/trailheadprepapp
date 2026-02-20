@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -31,9 +32,11 @@ const counterpartAnswerKeys: Record<AnswerChoice, keyof CounterpartQuestion> = {
 }
 
 export function QuestionDetailDialog({ question, counterpart, onOpenChange }: QuestionDetailDialogProps) {
+  const [showOriginal, setShowOriginal] = useState(true)
+
   return (
     <Dialog open={!!question} onOpenChange={onOpenChange}>
-      <DialogContent className={`max-h-[85vh] overflow-y-auto ${counterpart ? 'max-w-4xl' : 'max-w-xl'}`}>
+      <DialogContent className={`max-h-[85vh] overflow-y-auto ${counterpart && showOriginal ? 'max-w-4xl' : 'max-w-xl'} ${counterpart ? 'pb-0' : ''}`}>
         {question && !counterpart && (
           <>
             <DialogHeader>
@@ -122,13 +125,15 @@ export function QuestionDetailDialog({ question, counterpart, onOpenChange }: Qu
                 <DialogTitle>Q{question.question_number} — AI Counterpart</DialogTitle>
               </div>
               <DialogDescription>
-                Side-by-side comparison of the original and AI-generated question
+                {showOriginal
+                  ? 'Side-by-side comparison of the original and AI-generated question'
+                  : 'AI-generated counterpart question'}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className={`grid gap-6 ${showOriginal ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {/* Original question */}
-              <div className="space-y-3">
+              {showOriginal && (<div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold text-slate-700">Original</h3>
                   <Badge variant="secondary">{sectionLabels[question.section]}</Badge>
@@ -194,19 +199,60 @@ export function QuestionDetailDialog({ question, counterpart, onOpenChange }: Qu
                     })}
                   </div>
                 )}
-              </div>
+              </div>)}
 
               {/* AI Counterpart */}
-              <div className="space-y-3 border-l border-slate-200 pl-6">
+              <div className={`space-y-3 ${showOriginal ? 'border-l border-slate-200 pl-6' : ''}`}>
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold text-slate-700">AI Counterpart</h3>
                   <Badge className="bg-amber-100 text-amber-700 border-amber-200">AI Generated</Badge>
                 </div>
 
                 <p className="text-sm leading-relaxed">
-                  <MathText text={counterpart.questionText} />
+                  <MathText text={counterpart.questionText.replace(/\n\s*[A-D]\).*$/gms, '').trim()} />
                 </p>
+
+                <div className="space-y-1.5">
+                  {answerLetters.map((letter) => {
+                    const text = counterpart[counterpartAnswerKeys[letter]] as string | undefined
+                    if (!text) return null
+                    const isCorrect = showOriginal && letter === counterpart.correctAnswer
+                    return (
+                      <div
+                        key={letter}
+                        className={`flex items-center gap-2 rounded-lg border p-2 ${
+                          isCorrect ? 'border-green-500 bg-green-50' : 'border-slate-200'
+                        }`}
+                      >
+                        <span
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                            isCorrect ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {letter}
+                        </span>
+                        <span className="text-sm">
+                          <MathText text={text} />
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
+            </div>
+
+            <div className="sticky bottom-0 flex justify-end bg-white pt-3 pb-5">
+              <button
+                type="button"
+                onClick={() => setShowOriginal((v) => !v)}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  showOriginal
+                    ? 'border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                }`}
+              >
+                {showOriginal ? 'Hide' : 'Show'} Original
+              </button>
             </div>
           </>
         )}

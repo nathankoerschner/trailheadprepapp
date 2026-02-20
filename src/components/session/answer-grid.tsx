@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import React, { useMemo } from 'react'
 import { Sparkles } from 'lucide-react'
 import type { GridQuestion, GridAnswer } from '@/lib/types/database'
 
@@ -25,6 +25,25 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
     }
     return map
   }, [studentAnswers])
+
+  const correctRatioMap = useMemo(() => {
+    const map = new Map<string, number>()
+    const submittedStudents = students.filter((s) => s.test_submitted)
+    if (submittedStudents.length === 0) return map
+    for (const q of questions) {
+      let correct = 0
+      let answered = 0
+      for (const s of submittedStudents) {
+        const a = answerMap.get(`${s.student_id}:${q.id}`)
+        if (a?.selected_answer) {
+          answered++
+          if (a.is_correct) correct++
+        }
+      }
+      map.set(q.id, answered > 0 ? correct / answered : -1)
+    }
+    return map
+  }, [questions, students, answerMap])
 
   if (questions.length === 0 || students.length === 0) {
     return <p className="text-center text-slate-500 py-8">No data available</p>
@@ -55,7 +74,8 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
                 <div className="flex items-center gap-0.5">
                   <button
                     onClick={() => onQuestionClick(q)}
-                    className="rounded px-1.5 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+                    className="rounded px-1.5 py-0.5 text-xs font-medium transition-colors"
+                    style={ratioToStyle(correctRatioMap.get(q.id))}
                   >
                     Q{q.question_number}
                   </button>
@@ -88,6 +108,18 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
       </table>
     </div>
   )
+}
+
+function ratioToStyle(ratio: number | undefined): React.CSSProperties {
+  if (ratio === undefined || ratio < 0) return { color: '#334155' }
+  // Interpolate from red (0%) through yellow (50%) to green (100%)
+  const r = ratio <= 0.5 ? 220 : Math.round(220 - (ratio - 0.5) * 2 * 180)
+  const g = ratio <= 0.5 ? Math.round(60 + ratio * 2 * 140) : 200
+  const b = ratio <= 0.5 ? 60 : Math.round(60 + (ratio - 0.5) * 2 * 40)
+  return {
+    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.18)`,
+    color: `rgb(${Math.round(r * 0.6)}, ${Math.round(g * 0.45)}, ${Math.round(b * 0.4)})`,
+  }
 }
 
 function AnswerCell({ answer }: { answer: GridAnswer | undefined }) {
