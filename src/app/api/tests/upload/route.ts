@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveOrgIdFromUser } from '@/lib/auth/org-context'
 import { NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { extractQuestionsFromPages, type ExtractedQuestion } from '@/lib/openai/extract-questions'
 import type { User } from '@supabase/supabase-js'
 
@@ -141,10 +142,10 @@ export async function POST(request: Request) {
     }
 
     console.log(`[upload] Starting stored upload processing for test ${test.id} — ${normalizedRefs.length} page(s), org ${orgId}`)
-    processStoredUpload(normalizedRefs, originalPdfPath, test.id, orgId, admin).catch(async (err) => {
+    waitUntil(processStoredUpload(normalizedRefs, originalPdfPath, test.id, orgId, admin).catch(async (err) => {
       console.error(`[upload] Test ${test.id} processing FAILED:`, err)
       await admin.from('tests').update({ status: 'error' }).eq('id', test.id)
-    })
+    }))
 
     return NextResponse.json({ testId: test.id, status: 'processing' })
   }
@@ -188,10 +189,10 @@ export async function POST(request: Request) {
 
   // Legacy multipart fallback
   console.log(`[upload] Starting multipart upload processing for test ${test.id} — ${normalizedPages.length} page(s), org ${orgId}`)
-  processMultipartUpload(normalizedPages, pdfFile, test.id, orgId, admin).catch(async (err) => {
+  waitUntil(processMultipartUpload(normalizedPages, pdfFile, test.id, orgId, admin).catch(async (err) => {
     console.error(`[upload] Test ${test.id} multipart processing FAILED:`, err)
     await admin.from('tests').update({ status: 'error' }).eq('id', test.id)
-  })
+  }))
 
   return NextResponse.json({ testId: test.id, status: 'processing' })
 }
