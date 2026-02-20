@@ -7,19 +7,25 @@ export async function assembleRetest(
 ) {
   const supabase = createAdminClient()
 
-  // Get questions the student missed
+  // Get questions the student missed, joined with question_number for ordering
   const { data: missedAnswers } = await supabase
     .from('student_answers')
-    .select('question_id')
+    .select('question_id, questions(question_number)')
     .eq('session_id', sessionId)
     .eq('student_id', studentId)
     .eq('is_correct', false)
 
-  const missedQuestionIds = missedAnswers?.map((a) => a.question_id) || []
+  // Sort by original question number so retest preserves test order
+  const sorted = (missedAnswers || [])
+    .sort((a, b) => {
+      const aNum = (a.questions as unknown as { question_number: number })?.question_number ?? 0
+      const bNum = (b.questions as unknown as { question_number: number })?.question_number ?? 0
+      return aNum - bNum
+    })
 
   // Retest = only missed questions, capped at target count
-  const retestQuestions = missedQuestionIds.slice(0, targetCount).map((id, idx) => ({
-    questionId: id,
+  const retestQuestions = sorted.slice(0, targetCount).map((a, idx) => ({
+    questionId: a.question_id,
     source: 'missed' as const,
     order: idx + 1,
   }))
