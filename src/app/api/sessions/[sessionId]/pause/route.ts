@@ -1,5 +1,4 @@
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 
 export async function POST(
@@ -11,19 +10,23 @@ export async function POST(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = createAdminClient()
-
-  const { data: session } = await admin
+  const { data: session, error: sessionError } = await supabase
     .from('sessions')
     .select('id, status, paused_at, total_paused_ms')
     .eq('id', sessionId)
     .single()
 
+  if (sessionError) {
+    if (sessionError.code === 'PGRST116') {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+    }
+    return NextResponse.json({ error: sessionError.message }, { status: 500 })
+  }
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
   if (session.status === 'testing') {
     // Pause the test
-    const { error } = await admin
+    const { error } = await supabase
       .from('sessions')
       .update({
         status: 'paused',
@@ -41,7 +44,7 @@ export async function POST(
     const pauseDuration = Date.now() - pausedAt
     const newTotalPausedMs = (session.total_paused_ms || 0) + pauseDuration
 
-    const { error } = await admin
+    const { error } = await supabase
       .from('sessions')
       .update({
         status: 'testing',

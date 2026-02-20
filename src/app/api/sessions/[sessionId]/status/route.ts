@@ -13,7 +13,7 @@ export async function GET(
 
   const { data: session, error } = await supabase
     .from('sessions')
-    .select('id, status, test_started_at, test_duration_minutes')
+    .select('id, status, test_started_at, test_duration_minutes, paused_at, total_paused_ms')
     .eq('id', sessionId)
     .single()
 
@@ -34,8 +34,8 @@ export async function GET(
     status: session.status,
     testStartedAt: session.test_started_at,
     testDurationMinutes: session.test_duration_minutes,
-    pausedAt: null,
-    totalPausedMs: 0,
+    pausedAt: session.paused_at,
+    totalPausedMs: session.total_paused_ms,
     students: students || [],
   })
 }
