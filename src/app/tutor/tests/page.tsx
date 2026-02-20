@@ -27,6 +27,7 @@ export default function TestsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [testName, setTestName] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploadStatus, setUploadStatus] = useState('')
   const supabase = createClient()
 
   useEffect(() => {
@@ -65,27 +66,83 @@ export default function TestsPage() {
     if (!selectedFile || !testName.trim()) return
 
     setUploading(true)
-    const formData = new FormData()
-    formData.append('file', selectedFile)
-    formData.append('name', testName.trim())
+    setUploadStatus('')
 
-    const res = await fetch('/api/tests/upload', {
-      method: 'POST',
-      body: formData,
-    })
+    try {
+      const formData = new FormData()
+      formData.append('name', testName.trim())
 
-    if (!res.ok) {
+      if (selectedFile.type === 'application/pdf') {
+        setUploadStatus('Converting PDF pages to PNG...')
+        const pageImages = await convertPdfToPngFiles(selectedFile)
+        for (const pageImage of pageImages) {
+          formData.append('pages', pageImage)
+        }
+        formData.append('originalPdf', selectedFile)
+      } else {
+        formData.append('pages', selectedFile)
+      }
+
+      setUploadStatus('Uploading page images...')
+      const res = await fetch('/api/tests/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!res.ok) {
+        toast.error('Upload failed')
+        return
+      }
+
+      toast.success('Test uploaded! AI is extracting questions...')
+      setDialogOpen(false)
+      setTestName('')
+      setSelectedFile(null)
+      loadTests()
+    } catch (error) {
+      console.error(error)
       toast.error('Upload failed')
+    } finally {
       setUploading(false)
-      return
+      setUploadStatus('')
+    }
+  }
+
+  async function convertPdfToPngFiles(file: File): Promise<File[]> {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    const loadingTask = pdfjs.getDocument({
+      data: await file.arrayBuffer(),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      disableWorker: true,
+    })
+    const pdfDocument = await loadingTask.promise
+    const files: File[] = []
+
+    for (let i = 1; i <= pdfDocument.numPages; i++) {
+      setUploadStatus(`Converting PDF pages to PNG (${i}/${pdfDocument.numPages})...`)
+      const page = await pdfDocument.getPage(i)
+      const viewport = page.getViewport({ scale: 2 })
+      const canvas = window.document.createElement('canvas')
+      canvas.width = Math.ceil(viewport.width)
+      canvas.height = Math.ceil(viewport.height)
+
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Failed to create canvas context')
+
+      await page.render({ canvasContext: context, viewport }).promise
+
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((result) => {
+          if (result) resolve(result)
+          else reject(new Error('Failed to render PDF page to PNG'))
+        }, 'image/png')
+      })
+
+      files.push(new File([blob], `${file.name.replace(/\.pdf$/i, '')}-page-${i}.png`, { type: 'image/png' }))
     }
 
-    toast.success('Test uploaded! AI is extracting questions...')
-    setDialogOpen(false)
-    setTestName('')
-    setSelectedFile(null)
-    setUploading(false)
-    loadTests()
+    return files
   }
 
   return (
@@ -139,7 +196,7 @@ export default function TestsPage() {
                 {uploading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Uploading...
+                    {uploadStatus || 'Uploading...'}
                   </>
                 ) : (
                   'Upload & Extract'

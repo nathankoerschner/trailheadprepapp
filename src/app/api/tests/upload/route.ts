@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
-import { pdf } from 'pdf-to-img'
 import { extractQuestionsFromPages, type ExtractedQuestion } from '@/lib/openai/extract-questions'
 
 export async function POST(request: Request) {
@@ -18,11 +17,24 @@ export async function POST(request: Request) {
   if (!tutor) return NextResponse.json({ error: 'Tutor not found' }, { status: 404 })
 
   const formData = await request.formData()
-  const file = formData.get('file') as File | null
+  const pages = formData.getAll('pages').filter((value): value is File => value instanceof File)
+  const singleFile = formData.get('file')
+  const originalPdf = formData.get('originalPdf')
   const testName = formData.get('name') as string | null
+  const pdfFile = originalPdf instanceof File ? originalPdf : null
 
-  if (!file || !testName) {
-    return NextResponse.json({ error: 'File and name are required' }, { status: 400 })
+  if (!testName) {
+    return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+  }
+
+  const normalizedPages = pages.length > 0
+    ? pages
+    : singleFile instanceof File
+      ? [singleFile]
+      : []
+
+  if (normalizedPages.length === 0) {
+    return NextResponse.json({ error: 'At least one page image is required' }, { status: 400 })
   }
 
   const admin = createAdminClient()
@@ -44,7 +56,7 @@ export async function POST(request: Request) {
   }
 
   // Process in background — upload images, then extract
-  processTestUpload(file, test.id, tutor.org_id, admin).catch(async (err) => {
+  processTestUpload(normalizedPages, pdfFile, test.id, tutor.org_id, admin).catch(async (err) => {
     console.error('Test processing failed:', err)
     await admin.from('tests').update({ status: 'error' }).eq('id', test.id)
   })
@@ -58,68 +70,45 @@ interface PageData {
   storageUrl: string
 }
 
-async function pdfToImages(pdfBuffer: Buffer): Promise<Buffer[]> {
-  const images: Buffer[] = []
-  const doc = await pdf(pdfBuffer, { scale: 2 })
-  for await (const page of doc) {
-    images.push(Buffer.from(page))
-  }
-  return images
-}
-
 async function processTestUpload(
-  file: File,
+  pageFiles: File[],
+  originalPdf: File | null,
   testId: string,
   orgId: string,
   admin: ReturnType<typeof createAdminClient>
 ) {
-  const buffer = Buffer.from(await file.arrayBuffer())
   const pages: PageData[] = []
 
-  if (file.type === 'application/pdf') {
-    // Upload full PDF for reference
+  if (originalPdf?.type === 'application/pdf') {
+    const pdfBuffer = Buffer.from(await originalPdf.arrayBuffer())
     const pdfPath = `${orgId}/${testId}/original.pdf`
-    await admin.storage.from('test-images').upload(pdfPath, buffer, {
+    await admin.storage.from('test-images').upload(pdfPath, pdfBuffer, {
       contentType: 'application/pdf',
     })
+  }
 
-    // Convert PDF pages to PNG images
-    console.log('Converting PDF to images...')
-    const pngBuffers = await pdfToImages(buffer)
-    console.log(`Converted PDF to ${pngBuffers.length} PNG pages`)
-
-    for (let i = 0; i < pngBuffers.length; i++) {
-      const pngBuffer = pngBuffers[i]
-
-      // Upload PNG to storage
-      const imagePath = `${orgId}/${testId}/page-${i + 1}.png`
-      await admin.storage.from('test-images').upload(imagePath, pngBuffer, {
-        contentType: 'image/png',
-      })
-      const { data: pageUrl } = admin.storage.from('test-images').getPublicUrl(imagePath)
-
-      // Base64 for OpenAI
-      const base64 = pngBuffer.toString('base64')
-      pages.push({
-        base64,
-        mimeType: 'image/png',
-        storageUrl: pageUrl.publicUrl,
-      })
+  for (let i = 0; i < pageFiles.length; i++) {
+    const pageFile = pageFiles[i]
+    if (!pageFile.type.startsWith('image/')) {
+      throw new Error(`Unsupported page file type: ${pageFile.type}`)
     }
-  } else {
-    // Single image upload
-    const ext = file.name.split('.').pop() || 'png'
-    const imagePath = `${orgId}/${testId}/page-1.${ext}`
-    await admin.storage.from('test-images').upload(imagePath, buffer, {
-      contentType: file.type,
-    })
-    const { data: imgUrl } = admin.storage.from('test-images').getPublicUrl(imagePath)
+    const pageBuffer = Buffer.from(await pageFile.arrayBuffer())
+    const ext = pageFile.type === 'image/jpeg'
+      ? 'jpg'
+      : pageFile.type === 'image/webp'
+        ? 'webp'
+        : 'png'
+    const imagePath = `${orgId}/${testId}/page-${i + 1}.${ext}`
 
-    const base64 = buffer.toString('base64')
+    await admin.storage.from('test-images').upload(imagePath, pageBuffer, {
+      contentType: pageFile.type,
+    })
+    const { data: pageUrl } = admin.storage.from('test-images').getPublicUrl(imagePath)
+
     pages.push({
-      base64,
-      mimeType: file.type,
-      storageUrl: imgUrl.publicUrl,
+      base64: pageBuffer.toString('base64'),
+      mimeType: pageFile.type,
+      storageUrl: pageUrl.publicUrl,
     })
   }
 
