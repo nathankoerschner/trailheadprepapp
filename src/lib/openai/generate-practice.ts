@@ -48,7 +48,7 @@ ${originalQuestionText ? `The original question the student missed was:\n${origi
       },
     ],
     response_format: { type: 'json_object' },
-    max_tokens: 3000,
+    max_completion_tokens: 3000,
   })
 
   const content = response.choices[0]?.message?.content

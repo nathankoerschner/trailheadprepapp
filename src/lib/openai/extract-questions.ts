@@ -91,7 +91,7 @@ export async function extractQuestionsFromPages(
         },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: 8192,
+      max_completion_tokens: 8192,
     })
   } catch (err) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)

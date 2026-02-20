@@ -39,7 +39,7 @@ ${questionSummary}
 Write a brief teaching guide for the tutor.`,
       },
     ],
-    max_tokens: 1500,
+    max_completion_tokens: 1500,
   })
 
   return response.choices[0]?.message?.content || ''
