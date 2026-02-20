@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveOrgIdFromUser } from '@/lib/auth/org-context'
 import { NextResponse } from 'next/server'
+import type { User } from '@supabase/supabase-js'
 
 interface PrepareUploadFile {
   name?: string
@@ -25,18 +26,59 @@ function guessExtension(name: string | undefined, mimeType: string | undefined):
   return 'bin'
 }
 
+async function resolveOrgIdForPrepare(
+  user: User,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  admin: ReturnType<typeof createAdminClient>
+): Promise<string | null> {
+  const fromClaims = resolveOrgIdFromUser(user)
+  if (fromClaims) return fromClaims
+
+  const { data: tutor } = await supabase
+    .from('tutors')
+    .select('org_id')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (tutor?.org_id) return tutor.org_id
+
+  const { data: org } = await admin
+    .from('organizations')
+    .select('id')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (!org?.id) return null
+
+  const displayName =
+    (typeof user.user_metadata?.name === 'string' && user.user_metadata.name.trim()) ||
+    (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+    user.email ||
+    'Tutor'
+  const email = user.email || `${user.id}@local.invalid`
+
+  await admin.from('tutors').upsert({
+    id: user.id,
+    org_id: org.id,
+    name: displayName,
+    email,
+  })
+
+  return org.id
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient()
+  const admin = createAdminClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const orgId = resolveOrgIdFromUser(user)
+  const orgId = await resolveOrgIdForPrepare(user, supabase, admin)
   if (!orgId) {
     return NextResponse.json(
-      { error: 'Organization context missing for authenticated user' },
-      { status: 403 }
+      { error: 'Unable to resolve organization context for upload preparation' },
+      { status: 500 }
     )
   }
 
@@ -61,8 +103,6 @@ export async function POST(request: Request) {
   if (hasInvalidPageMime) {
     return NextResponse.json({ error: 'All page files must be images' }, { status: 400 })
   }
-
-  const admin = createAdminClient()
 
   const { data: test, error: testError } = await supabase
     .from('tests')
