@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MathText } from '@/components/math/katex-renderer'
+import { QuestionDisplay } from '@/components/question/question-display'
 import { ImageCropper } from '@/components/question/image-cropper'
 import { toast } from 'sonner'
 import type { Question, AnswerChoice, QuestionSection } from '@/lib/types/database'
@@ -282,6 +283,27 @@ export default function ReviewCarousel() {
             </Button>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Question Preview */}
+      <div className="mt-6">
+        <div className="mb-2">
+          <h3 className="text-base font-semibold">Question Preview</h3>
+          <p className="text-xs text-slate-500">How students will see this question</p>
+        </div>
+        <div className="mx-auto max-w-2xl">
+          <QuestionDisplay
+            questionText={editing.question_text ?? null}
+            imageUrl={question.image_url}
+            hasGraphic={question.has_graphic}
+            questionNumber={question.question_number}
+            answersAreVisual={question.answers_are_visual}
+            answerA={(editing.answer_a as string) ?? null}
+            answerB={(editing.answer_b as string) ?? null}
+            answerC={(editing.answer_c as string) ?? null}
+            answerD={(editing.answer_d as string) ?? null}
+          />
+        </div>
       </div>
 
       {/* Navigation */}

@@ -4,12 +4,11 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Clock, ChevronLeft, ChevronRight, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { QuestionDisplay } from '@/components/question/question-display'
 import { useTimer } from '@/lib/hooks/use-timer'
 import { studentFetch } from '@/lib/utils/student-api'
 import { formatTime } from '@/lib/utils/timer'
-import { MathText } from '@/components/math/katex-renderer'
 import { toast } from 'sonner'
 import type { AnswerChoice } from '@/lib/types/database'
 
@@ -146,77 +145,19 @@ export default function StudentRetestPage() {
       </div>
 
       {/* Question */}
-      <Card>
-        <CardContent className="p-4">
-          {/* Question text */}
-          {question.question_text && (
-            <p className="mb-4 text-base leading-relaxed whitespace-pre-wrap">
-              <MathText text={question.question_text} />
-            </p>
-          )}
-
-          {/* Show image only for questions with graphics */}
-          {question.has_graphic && question.image_url && (
-            <div className="mb-4">
-              <img
-                src={question.image_url}
-                alt={`Figure for question ${question.question_number}`}
-                className="max-w-full rounded border border-slate-200"
-              />
-            </div>
-          )}
-
-          {question.answers_are_visual ? (
-            <div className="flex gap-2">
-              {(['A', 'B', 'C', 'D'] as const).map((letter) => {
-                const isSelected = answers.get(question.id) === letter
-                return (
-                  <button
-                    key={letter}
-                    onClick={() => selectAnswer(question.id, letter)}
-                    className={`flex h-12 w-12 items-center justify-center rounded-lg border text-lg font-bold transition-colors ${
-                      isSelected
-                        ? 'border-slate-900 bg-slate-900 text-white'
-                        : 'border-slate-200 bg-white hover:bg-slate-50'
-                    }`}
-                  >
-                    {letter}
-                  </button>
-                )
-              })}
-            </div>
-          ) : (
-          <div className="space-y-2">
-            {(['A', 'B', 'C', 'D'] as const).map((letter) => {
-              const key = `answer_${letter.toLowerCase()}` as keyof RetestQuestion
-              const text = question[key] as string | null
-              if (!text) return null
-
-              const isSelected = answers.get(question.id) === letter
-
-              return (
-                <button
-                  key={letter}
-                  onClick={() => selectAnswer(question.id, letter)}
-                  className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
-                    isSelected
-                      ? 'border-slate-900 bg-slate-50 font-medium'
-                      : 'border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-                    isSelected ? 'bg-slate-900 text-white' : 'bg-slate-100'
-                  }`}>
-                    {letter}
-                  </span>
-                  <span className="text-sm"><MathText text={text} /></span>
-                </button>
-              )
-            })}
-          </div>
-          )}
-        </CardContent>
-      </Card>
+      <QuestionDisplay
+        questionText={question.question_text}
+        imageUrl={question.image_url}
+        hasGraphic={question.has_graphic}
+        questionNumber={question.question_number}
+        answersAreVisual={question.answers_are_visual}
+        answerA={question.answer_a}
+        answerB={question.answer_b}
+        answerC={question.answer_c}
+        answerD={question.answer_d}
+        selectedAnswer={answers.get(question.id) ?? null}
+        onSelectAnswer={(answer) => selectAnswer(question.id, answer)}
+      />
 
       {/* Navigation */}
       <div className="mt-4 flex items-center justify-between">
