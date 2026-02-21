@@ -16,6 +16,7 @@ export default function StudentJoinPage() {
   const [sessionId, setSessionId] = useState('')
   const [students, setStudents] = useState<Student[]>([])
   const [selectedStudent, setSelectedStudent] = useState<string>('')
+  const [joinedStudentIds, setJoinedStudentIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
 
   // Check if already in session
@@ -43,6 +44,7 @@ export default function StudentJoinPage() {
     const data = await res.json()
     setSessionId(data.sessionId)
     setStudents(data.students)
+    setJoinedStudentIds(new Set(data.joinedStudentIds || []))
     setStep('name')
     setLoading(false)
   }
@@ -105,19 +107,26 @@ export default function StudentJoinPage() {
             </form>
           ) : (
             <div className="space-y-3">
-              {students.map((student) => (
-                <button
-                  key={student.id}
-                  onClick={() => setSelectedStudent(student.id)}
-                  className={`w-full rounded-lg border p-3 text-left text-sm font-medium transition-colors ${
-                    selectedStudent === student.id
-                      ? 'border-slate-900 bg-slate-50'
-                      : 'border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  {student.name}
-                </button>
-              ))}
+              {students.map((student) => {
+                const taken = joinedStudentIds.has(student.id)
+                return (
+                  <button
+                    key={student.id}
+                    onClick={() => !taken && setSelectedStudent(student.id)}
+                    disabled={taken}
+                    className={`w-full rounded-lg border p-3 text-left text-sm font-medium transition-colors ${
+                      taken
+                        ? 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed'
+                        : selectedStudent === student.id
+                          ? 'border-slate-900 bg-slate-50'
+                          : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {student.name}
+                    {taken && <span className="ml-2 text-xs text-slate-400">(joined)</span>}
+                  </button>
+                )
+              })}
               <Button onClick={handleJoin} className="w-full" disabled={!selectedStudent || loading}>
                 {loading ? 'Joining...' : 'Join Session'}
               </Button>

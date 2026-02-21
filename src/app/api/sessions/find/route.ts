@@ -29,9 +29,18 @@ export async function GET(request: Request) {
     .eq('org_id', session.org_id)
     .order('name')
 
+  // Get students already joined to this session
+  const { data: joinedStudents } = await supabase
+    .from('session_students')
+    .select('student_id')
+    .eq('session_id', session.id)
+
+  const joinedIds = (joinedStudents || []).map((s) => s.student_id)
+
   return NextResponse.json({
     sessionId: session.id,
     status: session.status,
     students: students || [],
+    joinedStudentIds: joinedIds,
   })
 }

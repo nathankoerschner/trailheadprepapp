@@ -54,11 +54,26 @@ export async function POST(
     .eq('student_id', student.id)
     .maybeSingle()
 
-  if (!existing) {
-    await supabase.from('session_students').insert({
-      session_id: sessionId,
-      student_id: student.id,
+  if (existing) {
+    // Already joined — only allow if same student is re-joining (idempotent)
+    const token = createStudentToken(student.id, sessionId)
+    return NextResponse.json({
+      token,
+      studentId: student.id,
+      studentName: student.name,
+      sessionId,
+      sessionStatus: session.status,
     })
+  }
+
+  const { error: insertError } = await supabase.from('session_students').insert({
+    session_id: sessionId,
+    student_id: student.id,
+  })
+
+  if (insertError) {
+    // Unique constraint violation — race condition, name was just taken
+    return NextResponse.json({ error: 'This name has already been taken' }, { status: 409 })
   }
 
   const token = createStudentToken(student.id, sessionId)
