@@ -8,6 +8,7 @@ import { QuestionDisplay } from '@/components/question/question-display'
 import { AnnotationToolbar } from '@/components/question/annotation-toolbar'
 import { useTimer } from '@/lib/hooks/use-timer'
 import { useAnnotations, clearSessionAnnotations } from '@/lib/hooks/use-annotations'
+import { useFlaggedQuestions, clearSessionFlags } from '@/lib/hooks/use-flagged-questions'
 import { studentFetch } from '@/lib/utils/student-api'
 import { formatTime } from '@/lib/utils/timer'
 import { toast } from 'sonner'
@@ -59,6 +60,7 @@ export default function StudentTestPage() {
   const question = questions[currentIdx]
   const { eliminated, toggleElimination } =
     useAnnotations(sessionId, question?.id ?? null)
+  const { flagged, toggleFlag } = useFlaggedQuestions(sessionId)
 
   // Reset eliminate mode on question navigation
   useEffect(() => {
@@ -220,7 +222,10 @@ export default function StudentTestPage() {
 
     const res = await studentFetch('/api/answers/submit', { method: 'POST' })
     if (res.ok) {
-      if (sessionId) clearSessionAnnotations(sessionId)
+      if (sessionId) {
+        clearSessionAnnotations(sessionId)
+        clearSessionFlags(sessionId)
+      }
       toast.success('Test submitted!')
       router.push('/student/waiting')
     } else {
@@ -299,6 +304,8 @@ export default function StudentTestPage() {
             className={`h-8 w-8 rounded text-xs font-medium transition-colors ${
               i === currentIdx
                 ? 'bg-slate-900 text-white'
+                : flagged.has(q.id)
+                ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300'
                 : answers.has(q.id)
                 ? 'bg-green-100 text-green-700'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -314,6 +321,8 @@ export default function StudentTestPage() {
         <AnnotationToolbar
           eliminateMode={eliminateMode}
           onToggleEliminateMode={() => setEliminateMode((m) => !m)}
+          flagged={question ? flagged.has(question.id) : false}
+          onToggleFlag={() => question && toggleFlag(question.id)}
         />
       </div>
 

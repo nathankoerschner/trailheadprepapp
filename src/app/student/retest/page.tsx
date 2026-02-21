@@ -2,16 +2,17 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Clock, ChevronLeft, ChevronRight, Send } from 'lucide-react'
+import { Clock, ChevronLeft, ChevronRight, Send, Flag } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { QuestionDisplay } from '@/components/question/question-display'
 import { useTimer } from '@/lib/hooks/use-timer'
 import { studentFetch } from '@/lib/utils/student-api'
-import { clearStudentStorage } from '@/lib/utils/student-storage'
+import { clearStudentStorage, getStudentStorageItem } from '@/lib/utils/student-storage'
 import { formatTime } from '@/lib/utils/timer'
 import { toast } from 'sonner'
 import { MathReference } from '@/components/question/math-reference'
+import { useFlaggedQuestions } from '@/lib/hooks/use-flagged-questions'
 import type { AnswerChoice } from '@/lib/types/database'
 
 
@@ -42,6 +43,8 @@ export default function StudentRetestPage() {
   const [loading, setLoading] = useState(true)
   const [durationMinutes, setDurationMinutes] = useState(30)
   const [startedAt] = useState(new Date().toISOString())
+  const [sessionId] = useState(() => getStudentStorageItem('session_id'))
+  const { flagged, toggleFlag } = useFlaggedQuestions(sessionId)
 
   useEffect(() => {
     loadRetestData()
@@ -139,6 +142,8 @@ export default function StudentRetestPage() {
             className={`h-8 w-8 rounded text-xs font-medium transition-colors ${
               i === currentIdx
                 ? 'bg-slate-900 text-white'
+                : flagged.has(q.id)
+                ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300'
                 : answers.has(q.id)
                 ? 'bg-green-100 text-green-700'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -147,6 +152,22 @@ export default function StudentRetestPage() {
             {i + 1}
           </button>
         ))}
+      </div>
+
+      {/* Flag button */}
+      <div className="mb-3 flex gap-1">
+        <button
+          onClick={() => question && toggleFlag(question.id)}
+          className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+            question && flagged.has(question.id)
+              ? 'border-amber-300 bg-amber-50 text-amber-700'
+              : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+          }`}
+          title={question && flagged.has(question.id) ? 'Unflag question' : 'Flag for review'}
+        >
+          <Flag className={`h-3.5 w-3.5 ${question && flagged.has(question.id) ? 'fill-amber-500' : ''}`} />
+          {question && flagged.has(question.id) ? 'Flagged' : 'Flag'}
+        </button>
       </div>
 
       {/* Question */}
