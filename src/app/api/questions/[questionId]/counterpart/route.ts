@@ -4,6 +4,8 @@ import { generateCounterpart } from '@/lib/openai/generate-counterpart'
 import { NextResponse } from 'next/server'
 import type { GridQuestion } from '@/lib/types/database'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ questionId: string }> }
