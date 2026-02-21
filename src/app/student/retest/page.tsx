@@ -11,6 +11,7 @@ import { studentFetch } from '@/lib/utils/student-api'
 import { clearStudentStorage } from '@/lib/utils/student-storage'
 import { formatTime } from '@/lib/utils/timer'
 import { toast } from 'sonner'
+import { MathReference } from '@/components/question/math-reference'
 import type { AnswerChoice } from '@/lib/types/database'
 
 
@@ -186,6 +187,7 @@ export default function StudentRetestPage() {
           </Button>
         )}
       </div>
+      <MathReference />
     </div>
   )
 }

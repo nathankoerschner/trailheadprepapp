@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Clock, ChevronLeft, ChevronRight, Send, Pause } from 'lucide-react'
+import { Clock, ChevronLeft, ChevronRight, Send, Pause, EyeOff, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { QuestionDisplay } from '@/components/question/question-display'
 import { useTimer } from '@/lib/hooks/use-timer'
@@ -10,6 +10,7 @@ import { studentFetch } from '@/lib/utils/student-api'
 import { formatTime } from '@/lib/utils/timer'
 import { toast } from 'sonner'
 import { clearStudentStorage, getStudentStorageItem } from '@/lib/utils/student-storage'
+import { MathReference } from '@/components/question/math-reference'
 import type { AnswerChoice } from '@/lib/types/database'
 
 function logStudentRedirect(reason: string, details: Record<string, unknown>) {
@@ -46,6 +47,7 @@ export default function StudentTestPage() {
   const [paused, setPaused] = useState(false)
   const [pausedAt, setPausedAt] = useState<string | null>(null)
   const [totalPausedMs, setTotalPausedMs] = useState(0)
+  const [timerHidden, setTimerHidden] = useState(false)
   const status404CountRef = useRef(0)
 
   const handleStatus404 = useCallback(
@@ -247,12 +249,24 @@ export default function StudentTestPage() {
           <span className="text-sm text-slate-500">
             Question {currentIdx + 1} of {questions.length}
           </span>
-          <div className={`flex items-center gap-1 font-mono text-lg font-bold ${
-            remaining < 5 * 60 * 1000 ? 'text-red-600' : 'text-slate-900'
-          }`}>
-            <Clock className="h-4 w-4" />
-            {formatTime(remaining)}
-          </div>
+          <button
+            onClick={() => setTimerHidden(!timerHidden)}
+            className={`flex items-center gap-1 font-mono text-lg font-bold ${
+              remaining < 5 * 60 * 1000 ? 'text-red-600' : 'text-slate-900'
+            }`}
+          >
+            {timerHidden ? (
+              <>
+                <EyeOff className="h-4 w-4" />
+                <span className="text-sm text-slate-400">Show timer</span>
+              </>
+            ) : (
+              <>
+                <Clock className="h-4 w-4" />
+                {formatTime(remaining)}
+              </>
+            )}
+          </button>
           <span className="text-sm text-slate-500">
             {answeredCount}/{questions.length} answered
           </span>
@@ -318,6 +332,7 @@ export default function StudentTestPage() {
           </Button>
         )}
       </div>
+      <MathReference />
     </div>
   )
 }
