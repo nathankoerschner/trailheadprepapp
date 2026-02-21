@@ -8,6 +8,7 @@ import { QuestionDisplay } from '@/components/question/question-display'
 import { AnnotationToolbar } from '@/components/question/annotation-toolbar'
 import { useTimer } from '@/lib/hooks/use-timer'
 import { useAnnotations, clearSessionAnnotations } from '@/lib/hooks/use-annotations'
+import { useHighlights, clearSessionHighlights } from '@/lib/hooks/use-highlights'
 import { useFlaggedQuestions, clearSessionFlags } from '@/lib/hooks/use-flagged-questions'
 import { studentFetch } from '@/lib/utils/student-api'
 import { formatTime } from '@/lib/utils/timer'
@@ -56,15 +57,19 @@ export default function StudentTestPage() {
   // Annotation state
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [eliminateMode, setEliminateMode] = useState(false)
+  const [highlightMode, setHighlightMode] = useState(false)
 
   const question = questions[currentIdx]
   const { eliminated, toggleElimination } =
     useAnnotations(sessionId, question?.id ?? null)
+  const { highlights, addHighlight, removeHighlight, updateNote } =
+    useHighlights(sessionId, question?.id ?? null)
   const { flagged, toggleFlag } = useFlaggedQuestions(sessionId)
 
-  // Reset eliminate mode on question navigation
+  // Reset eliminate/highlight mode on question navigation
   useEffect(() => {
     setEliminateMode(false)
+    setHighlightMode(false)
   }, [currentIdx])
 
   const handleStatus404 = useCallback(
@@ -224,6 +229,7 @@ export default function StudentTestPage() {
     if (res.ok) {
       if (sessionId) {
         clearSessionAnnotations(sessionId)
+        clearSessionHighlights(sessionId)
         clearSessionFlags(sessionId)
       }
       toast.success('Test submitted!')
@@ -323,6 +329,8 @@ export default function StudentTestPage() {
           onToggleEliminateMode={() => setEliminateMode((m) => !m)}
           flagged={question ? flagged.has(question.id) : false}
           onToggleFlag={() => question && toggleFlag(question.id)}
+          highlightMode={highlightMode}
+          onToggleHighlightMode={() => setHighlightMode((m) => !m)}
         />
       </div>
 
@@ -342,6 +350,11 @@ export default function StudentTestPage() {
         eliminatedAnswers={eliminated}
         eliminateMode={eliminateMode}
         onToggleElimination={toggleElimination}
+        highlights={highlights}
+        highlightMode={highlightMode}
+        onAddHighlight={addHighlight}
+        onRemoveHighlight={removeHighlight}
+        onUpdateHighlightNote={updateNote}
       />
 
       {/* Navigation */}

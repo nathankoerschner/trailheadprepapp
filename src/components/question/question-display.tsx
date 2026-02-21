@@ -2,7 +2,9 @@
 
 import { Card, CardContent } from '@/components/ui/card'
 import { MathText } from '@/components/math/katex-renderer'
+import { HighlightableMathText } from '@/components/question/highlightable-math-text'
 import type { AnswerChoice } from '@/lib/types/database'
+import type { Highlight } from '@/lib/hooks/use-highlights'
 
 interface QuestionDisplayProps {
   questionText: string | null
@@ -20,6 +22,12 @@ interface QuestionDisplayProps {
   eliminatedAnswers?: Set<AnswerChoice>
   eliminateMode?: boolean
   onToggleElimination?: (answer: AnswerChoice) => void
+  // Highlight props (all optional)
+  highlights?: Highlight[]
+  highlightMode?: boolean
+  onAddHighlight?: (start: number, end: number) => string | undefined
+  onRemoveHighlight?: (id: string) => void
+  onUpdateHighlightNote?: (id: string, note: string) => void
 }
 
 export function QuestionDisplay({
@@ -37,6 +45,11 @@ export function QuestionDisplay({
   eliminatedAnswers,
   eliminateMode,
   onToggleElimination,
+  highlights,
+  highlightMode,
+  onAddHighlight,
+  onRemoveHighlight,
+  onUpdateHighlightNote,
 }: QuestionDisplayProps) {
   const answers = { A: answerA, B: answerB, C: answerC, D: answerD } as const
 
@@ -65,7 +78,18 @@ export function QuestionDisplay({
         {/* Question text */}
         {questionText && (
           <p className="mb-4 text-base leading-relaxed">
-            <MathText text={questionText} />
+            {highlights && onAddHighlight && onRemoveHighlight && onUpdateHighlightNote ? (
+              <HighlightableMathText
+                text={questionText}
+                highlights={highlights}
+                highlightMode={highlightMode ?? false}
+                onAddHighlight={onAddHighlight}
+                onRemoveHighlight={onRemoveHighlight}
+                onUpdateNote={onUpdateHighlightNote}
+              />
+            ) : (
+              <MathText text={questionText} />
+            )}
           </p>
         )}
 
