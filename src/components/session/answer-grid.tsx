@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useMemo, useState } from 'react'
-import { Sparkles, EyeOff, Eye } from 'lucide-react'
+import { Sparkles, EyeOff, Eye, Download } from 'lucide-react'
 import type { GridQuestion, GridAnswer } from '@/lib/types/database'
 
 interface AnswerGridProps {
@@ -144,7 +144,15 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
         </tbody>
       </table>
     </div>
-      <div className="flex justify-end mt-1">
+      <div className="flex justify-end gap-1.5 mt-1">
+        <button
+          onClick={() => exportCsv(questions, filteredStudents, answerMap)}
+          className="flex items-center gap-1 rounded-full px-2 py-1 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 shadow-sm transition-colors"
+          title="Export to CSV"
+        >
+          <Download className="h-3 w-3" />
+          Export CSV
+        </button>
         <button
           onClick={() => setHideAnswers((h) => !h)}
           className="flex items-center gap-1 rounded-full px-2 py-1 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 shadow-sm transition-colors"
@@ -156,6 +164,44 @@ export function AnswerGrid({ questions, students, studentAnswers, onQuestionClic
       </div>
     </div>
   )
+}
+
+function exportCsv(
+  questions: GridQuestion[],
+  students: AnswerGridProps['students'],
+  answerMap: Map<string, GridAnswer>,
+) {
+  const escapeCsv = (val: string) => {
+    if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+      return `"${val.replace(/"/g, '""')}"`
+    }
+    return val
+  }
+
+  const header = ['Question', 'Section', 'Concept', 'Correct Answer', ...students.map((s) => escapeCsv(s.students.name))]
+  const rows = questions.map((q) => {
+    const studentCells = students.map((s) => {
+      const a = answerMap.get(`${s.student_id}:${q.id}`)
+      if (!a) return ''
+      return a.selected_answer || ''
+    })
+    return [
+      `Q${q.question_number}`,
+      q.section === 'reading_writing' ? 'R/W' : 'Math',
+      escapeCsv(q.concept_tag || ''),
+      q.correct_answer,
+      ...studentCells,
+    ]
+  })
+
+  const csv = [header.join(','), ...rows.map((r) => r.join(','))].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `answer-grid-${new Date().toISOString().slice(0, 10)}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 function ratioToStyle(ratio: number | undefined): React.CSSProperties {
