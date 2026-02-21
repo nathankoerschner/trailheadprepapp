@@ -2,10 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Clock, ChevronLeft, ChevronRight, Send, Pause, EyeOff, Eye } from 'lucide-react'
+import { Clock, ChevronLeft, ChevronRight, Send, Pause, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { QuestionDisplay } from '@/components/question/question-display'
+import { AnnotationToolbar } from '@/components/question/annotation-toolbar'
 import { useTimer } from '@/lib/hooks/use-timer'
+import { useAnnotations, clearSessionAnnotations } from '@/lib/hooks/use-annotations'
 import { studentFetch } from '@/lib/utils/student-api'
 import { formatTime } from '@/lib/utils/timer'
 import { toast } from 'sonner'
@@ -50,12 +52,25 @@ export default function StudentTestPage() {
   const [timerHidden, setTimerHidden] = useState(false)
   const status404CountRef = useRef(0)
 
+  // Annotation state
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [eliminateMode, setEliminateMode] = useState(false)
+
+  const question = questions[currentIdx]
+  const { eliminated, toggleElimination } =
+    useAnnotations(sessionId, question?.id ?? null)
+
+  // Reset eliminate mode on question navigation
+  useEffect(() => {
+    setEliminateMode(false)
+  }, [currentIdx])
+
   const handleStatus404 = useCallback(
-    (sessionId: string) => {
+    (sid: string) => {
       status404CountRef.current += 1
       if (status404CountRef.current >= 3) {
         logStudentRedirect('status-404-threshold', {
-          sessionId,
+          sessionId: sid,
           misses: status404CountRef.current,
         })
         clearStudentStorage()
@@ -66,11 +81,11 @@ export default function StudentTestPage() {
   )
 
   const loadTestData = useCallback(async () => {
-    const sessionId = getStudentStorageItem('session_id')
+    const sid = getStudentStorageItem('session_id')
     const token = getStudentStorageItem('student_token')
-    if (!sessionId || !token) {
+    if (!sid || !token) {
       logStudentRedirect('missing-session-auth', {
-        hasSessionId: Boolean(sessionId),
+        hasSessionId: Boolean(sid),
         hasToken: Boolean(token),
         hasStudentName: Boolean(getStudentStorageItem('student_name')),
       })
@@ -79,12 +94,14 @@ export default function StudentTestPage() {
       return
     }
 
+    setSessionId(sid)
+
     try {
       // Get session info for timer
-      const statusRes = await fetch(`/api/sessions/${sessionId}/status`, { cache: 'no-store' })
+      const statusRes = await fetch(`/api/sessions/${sid}/status`, { cache: 'no-store' })
       if (!statusRes.ok) {
         if (statusRes.status === 404) {
-          handleStatus404(sessionId)
+          handleStatus404(sid)
           return
         }
         toast.error('Failed to verify session status')
@@ -163,14 +180,14 @@ export default function StudentTestPage() {
   // Poll session status to detect pause/resume
   useEffect(() => {
     if (loading) return
-    const sessionId = getStudentStorageItem('session_id')
-    if (!sessionId) return
+    const sid = getStudentStorageItem('session_id')
+    if (!sid) return
 
     const interval = setInterval(async () => {
-      const res = await fetch(`/api/sessions/${sessionId}/status`, { cache: 'no-store' })
+      const res = await fetch(`/api/sessions/${sid}/status`, { cache: 'no-store' })
       if (!res.ok) {
         if (res.status === 404) {
-          handleStatus404(sessionId)
+          handleStatus404(sid)
         }
         return
       }
@@ -203,13 +220,14 @@ export default function StudentTestPage() {
 
     const res = await studentFetch('/api/answers/submit', { method: 'POST' })
     if (res.ok) {
+      if (sessionId) clearSessionAnnotations(sessionId)
       toast.success('Test submitted!')
       router.push('/student/waiting')
     } else {
       toast.error('Failed to submit')
       setSubmitted(false)
     }
-  }, [submitted, router])
+  }, [submitted, router, sessionId])
 
   const { remaining } = useTimer(testStartedAt, durationMinutes, handleSubmit, totalPausedMs, pausedAt)
 
@@ -227,7 +245,6 @@ export default function StudentTestPage() {
   if (loading) return <p className="text-center text-slate-500 py-12">Loading test...</p>
   if (questions.length === 0) return <p className="text-center text-slate-500 py-12">No questions found</p>
 
-  const question = questions[currentIdx]
   const answeredCount = answers.size
 
   return (
@@ -292,6 +309,14 @@ export default function StudentTestPage() {
         ))}
       </div>
 
+      {/* Annotation toolbar */}
+      <div className="mb-3">
+        <AnnotationToolbar
+          eliminateMode={eliminateMode}
+          onToggleEliminateMode={() => setEliminateMode((m) => !m)}
+        />
+      </div>
+
       {/* Question display */}
       <QuestionDisplay
         questionText={question.question_text}
@@ -305,6 +330,9 @@ export default function StudentTestPage() {
         answerD={question.answer_d}
         selectedAnswer={answers.get(question.id) ?? null}
         onSelectAnswer={(answer) => selectAnswer(question.id, answer)}
+        eliminatedAnswers={eliminated}
+        eliminateMode={eliminateMode}
+        onToggleElimination={toggleElimination}
       />
 
       {/* Navigation */}
